@@ -45,6 +45,11 @@ export class MatchingEngine {
   public processOrder(incomingOrder: Order): { order: Order; trades: Trade[] } {
     const executedTrades: Trade[] = [];
 
+    // Ensure order is persisted in SQLite DB before trade execution
+    if (!OrderModel.findById(incomingOrder.id)) {
+      OrderModel.create(incomingOrder);
+    }
+
     if (incomingOrder.side === 'BUY') {
       this.matchBuyOrder(incomingOrder, executedTrades);
       if (incomingOrder.remainingQuantity > 0 && incomingOrder.type !== 'MARKET' && incomingOrder.status !== 'CANCELLED') {

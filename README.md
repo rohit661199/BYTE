@@ -10,5 +10,5 @@ High-performance order matching engine and real-time trading dashboard for `BYTE
 - [x] **Milestone 2**: Backend Architecture & Database Setup (REST APIs, SQLite WAL schema, Zod validation, Error Handler).
 - [x] **Milestone 3**: Core Matching Engine & Real-Time WebSockets (Price-Time Priority, Partial Fills, WS Broadcasting).
 - [x] **Milestone 4**: Frontend Trading Dashboard UI (React + Tailwind Dark Trading Terminal, Depth Bars, Stats, Forms).
-- [ ] **Milestone 5**: Unit Testing (Vitest).
+- [x] **Milestone 5**: Unit Testing (Vitest Unit Test Suite for MatchingEngine — 100% Passed).
 - [ ] **Milestone 6**: Documentation, Design Decisions & Docker.
