@@ -3,7 +3,7 @@ services:
     name: byte-exchange-backend
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build --workspace=backend
+    buildCommand: npm install --include=dev && npm run build --workspace=backend
     startCommand: node backend/dist/index.js
     envVars:
       - key: NODE_ENV
