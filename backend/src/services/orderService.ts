@@ -13,6 +13,9 @@ export interface CreateOrderResult {
 
 export class OrderService {
   static createOrder(dto: CreateOrderDTO): CreateOrderResult {
+    // Re-hydrate matching engine from persistent DB to ensure all active resting counter-orders are present
+    matchingEngine.hydrateFromDatabase();
+
     const newOrder: Order = {
       id: `${dto.side.toLowerCase()}_${Date.now()}_${randomUUID().substring(0, 8)}`,
       side: dto.side,
