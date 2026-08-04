@@ -18,30 +18,25 @@ Designed and implemented following **Clean Architecture principles**, robust Pri
 
 ---
 
-## 📖 About BYTE Exchange
-
-**BYTE Exchange** is an interview-quality, production-grade **Central Limit Order Book (CLOB)** matching engine and live trading terminal built for the fictional asset **`BYTE`**.
-
-It simulates the core matching algorithms utilized by modern financial exchanges (such as NASDAQ, Binance, and Coinbase), strictly enforcing **Price-Time Priority (FIFO)** order matching rules, atomic orderbook execution, real-time WebSocket state streaming, and persistent database storage.
-
-### 🎯 Key Objectives & Design Philosophy
-- **Deterministic Order Matching**: Guarantees strict Price-Time Priority (FIFO) execution where maker price dictates trade execution price (`BUY 100 vs SELL 95` $\rightarrow$ Trade executed at $95$).
-- **Zero-Latency State Synchronization**: In-memory matching engine decoupled from async persistence, streaming live orderbook depth updates to frontend clients over WebSockets in real time.
-- **Production Resilience**: Multi-level market order depth sweeps, strict zero-liquidity guards, dual SQLite/PostgreSQL persistence layers, and 100% automated test coverage across 50 Vitest test suites.
-
----
-
 ## 🌟 Project Overview & Key Features
 
-### ⚙️ Core Matching Engine & Execution
-- **Price-Time Priority (FIFO) Matching**: In-memory matching engine supporting both **`LIMIT`** and **`MARKET`** orders.
-  - **Bids (Buy Book)**: Sorted descending by price (highest price first); tie-breaker is oldest timestamp.
-  - **Asks (Sell Book)**: Sorted ascending by price (lowest price first); tie-breaker is oldest timestamp.
-- **Specification-Compliant Execution Price**: Trade execution price strictly records at the **maker order price** ($95$ in `BUY 100 vs SELL 95`), exactly adhering to the ByteVox exchange specification.
-- **Partial Fills & Multi-Level Sweeps**: Handles partial order fills, remaining quantities, and sweeping multiple counter-order price levels.
-- **Market Order Liquidity Guard**: MARKET BUY executes against lowest available SELL asks; MARKET SELL executes against highest available BUY bids. Returns `"No liquidity available"` (HTTP 400) if opposite book is empty, and market orders never rest on orderbooks or stay pending.
-- **Order Cancellation**: Instant cancellation of resting open orders from in-memory engine and database (`DELETE /api/orders/:id`).
-- **Reset Engine Feature**: One-click reset feature (`POST /api/orders/reset`) wiping active orders, trade history, and statistics back to fresh state.
+### ⚙️ Core Matching Engine & System Capabilities
+
+#### 📊 Order Types & Matching Behavior
+- **Limit Orders (`LIMIT`)**:
+  - **BUY LIMIT**: Placed with a maximum willingness-to-pay price. Matches against lowest SELL asks $\le$ buy price. Unfilled remaining quantity rests on the Buy Order Book (Bids) sorted descending by price, then ascending by creation time (`createdAt`).
+  - **SELL LIMIT**: Placed with a minimum willingness-to-accept price. Matches against highest BUY bids $\ge$ sell price. Unfilled remaining quantity rests on the Sell Order Book (Asks) sorted ascending by price, then ascending by creation time (`createdAt`).
+- **Market Orders (`MARKET`)**:
+  - **BUY MARKET**: Instantly consumes lowest available SELL asks across multiple price levels until requested quantity is satisfied or liquidity ends. Unfilled portion is cancelled gracefully; market orders **never rest on orderbooks** or remain pending.
+  - **SELL MARKET**: Instantly consumes highest available BUY bids across multiple price levels until requested quantity is satisfied or liquidity ends. Unfilled portion is cancelled gracefully; market orders **never rest on orderbooks** or remain pending.
+  - **Zero-Liquidity Protection**: If no opposite-side orders exist in the orderbook, the engine cleanly rejects the market order with HTTP 400 (`NO_LIQUIDITY`).
+
+#### ⚡ Trade Execution Rules
+- **Price-Time Priority (FIFO)**: High-priority matching based first on price advantage (highest bid / lowest ask), then strictly by arrival timestamp (FIFO) for orders at the same price level.
+- **Specification-Compliant Execution Price**: Trade execution price strictly records at the **maker order price** ($95$ in `BUY 100 vs SELL 95`), exactly adhering to ByteVox exchange matching rules.
+- **Partial Fills & Multi-Level Depth Sweeps**: Automatically splits orders when liquidity spans across multiple price levels (e.g., `BUY MARKET 8` against `SELL 100x5` + `SELL 110x5` $\rightarrow$ Executes 5 @ $100 and 3 @ $110).
+- **Order Cancellation**: Instant cancellation of resting open orders from in-memory engine and database (`DELETE /api/orders/:id`), releasing un-filled quantities cleanly.
+- **One-Click Engine Reset**: Full state purge feature (`POST /api/orders/reset`) resetting active orderbooks, trade history streams, and exchange statistics back to clean initial state.
 
 ### 💾 Persistence & Real-Time Sync
 - **Atomic Persistence**: Dual SQLite WAL Mode & PostgreSQL connection pooling. Orderbook state is automatically hydrated from persistent database rows on server startup.
