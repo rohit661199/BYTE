@@ -1,10 +1,10 @@
 services:
   - type: web
     name: byte-exchange-backend
-    env: node
+    runtime: node
     plan: free
-    buildCommand: npm run setup && npm run build --workspace=backend
-    startCommand: npm start --prefix backend
+    buildCommand: npm install && npm run build --workspace=backend
+    startCommand: node backend/dist/index.js
     envVars:
       - key: NODE_ENV
         value: production
