@@ -10,7 +10,7 @@ import { apiService } from '../services/api';
 import { Order } from '../types/index';
 
 export function Dashboard() {
-  const { isConnected, orderBook, stats, trades } = useWebSocket();
+  const { isConnected, orderBook, stats, trades, refreshData } = useWebSocket();
   const [allOrders, setAllOrders] = useState<Order[]>([]);
 
   const fetchOrders = useCallback(async () => {
@@ -28,6 +28,7 @@ export function Dashboard() {
 
   const handleOrderChange = () => {
     fetchOrders();
+    refreshData();
   };
 
   return (
