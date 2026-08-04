@@ -1,4 +1,4 @@
-# BYTE Exchange — Order Matching Engine & Real-Time Trading Terminal
+# BYTE Exchange — High-Performance Order Matching Engine & Real-Time Trading Terminal
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-22.x-green.svg)](https://nodejs.org/)
@@ -7,23 +7,39 @@
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38bdf8.svg)](https://tailwindcss.com/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL--Mode-blue.svg)](https://www.sqlite.org/)
 [![Vitest](https://img.shields.io/badge/Vitest-3.0-yellow.svg)](https://vitest.dev/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ed.svg)](https://www.docker.com/)
 
-An interview-quality, high-performance **Order Matching Engine and Real-Time Trading Terminal** built for a fictional asset called **`BYTE`**.
+An interview-quality, production-grade **Order Matching Engine and Real-Time Trading Terminal** built for a fictional asset called **`BYTE`**.
 
 Designed and implemented following **Clean Architecture principles**, robust Price-Time Priority order matching, atomic SQLite durability, real-time WebSocket broadcasting, and automated Vitest unit testing.
 
 ---
 
-## 🌟 Key Features
+## 🌟 Project Overview & Key Features
 
-- **Price-Time Priority Orderbook Engine**: In-memory matching engine supporting `LIMIT` and `MARKET` orders.
-- **Partial Fills & Continuous Sweeping**: Fully handles partial order fills, remaining quantities, and multi-level price sweeps.
-- **Atomic SQLite WAL Persistence**: Synchronous, zero-latency persistence via `better-sqlite3` in Write-Ahead Logging (WAL) mode. Orderbook state is automatically hydrated on restart.
-- **Real-Time WebSockets (`ws`)**: Instant push updates for Order Book depth (`ORDER_BOOK_UPDATE`), Trade execution streams (`TRADE_EXECUTED`), and Exchange Statistics (`STATS_UPDATE`).
-- **Modern Trading Dashboard UI**: Dark-themed responsive UI in React + TailwindCSS featuring visual liquidity depth bars, real-time trade history, quick quantity presets, and active order cancellation.
-- **Strict Validation & Error Handling**: Zod request schema validation and centralized JSON error responses.
-- **100% Automated Unit Test Coverage**: Automated test suite for matching logic, partial fills, cancellations, and order sweeps using **Vitest**.
-- **Docker & Docker-Compose Support**: Containerized backend and Nginx-served frontend.
+### ⚙️ Core Matching Engine & Execution
+- **Price-Time Priority (FIFO) Matching**: In-memory matching engine supporting both **`LIMIT`** and **`MARKET`** orders.
+  - **Bids (Buy Book)**: Sorted descending by price (highest price first); tie-breaker is oldest timestamp.
+  - **Asks (Sell Book)**: Sorted ascending by price (lowest price first); tie-breaker is oldest timestamp.
+- **Specification-Compliant Execution Price**: Trade execution price strictly records at the **SELL order price** ($95$ in `BUY 100 vs SELL 95`), exactly adhering to the exchange specification.
+- **Partial Fills & Multi-Level Sweeps**: Handles partial order fills, remaining quantities, and sweeping multiple counter-order price levels.
+- **Market Order Liquidity Guard**: MARKET BUY executes against lowest available SELL asks; MARKET SELL executes against highest available BUY bids. Returns `"No liquidity available"` if opposite book is empty.
+- **Order Cancellation (Bonus)**: Instant cancellation of resting open orders from in-memory engine and database (`DELETE /api/orders/:id`).
+- **Reset Engine Feature**: One-click reset feature (`POST /api/orders/reset`) wiping active orders, trade history, and statistics back to fresh state.
+
+### 💾 Persistence & Real-Time Sync
+- **Atomic SQLite WAL Mode Persistence**: Zero-latency, synchronous persistence via `better-sqlite3` operating in Write-Ahead Logging (WAL) mode. Orderbook state is automatically hydrated from persistent DB rows on server startup.
+- **Real-Time WebSockets (`ws`)**: Instant event streaming (`ORDER_BOOK_UPDATE`, `TRADE_EXECUTED`, `STATS_UPDATE`) to connected frontend clients.
+
+### 🎨 Trading Dashboard UI
+- **Modern Dark Trading Terminal**: Built with React 18 + Vite + TypeScript + TailwindCSS.
+- **Visual Liquidity Depth Bars**: Orderbook columns dynamically visualize volume depth ratios per price level.
+- **Real-Time Trade Stream**: Live executed trade stream showing Price, Quantity, and Time (`HH:mm:ss`).
+- **Order Entry Panel**: Tabbed BUY/SELL selector, LIMIT/MARKET toggle, quick quantity presets (+1, +5, +10, +25, +50), estimated total calculation, and Zod error toast display.
+
+### 🧪 Quality Assurance & Containerization
+- **100% Vitest Unit Test Suite**: 8 automated unit tests covering full matches, partial fills, Price-Time priority sorting, market orders, order cancellations, and multi-level sweeps (**8/8 passed in 72ms**).
+- **Docker & Docker-Compose**: Production-ready multi-stage Docker builds for Express backend and Nginx-served frontend.
 
 ---
 
@@ -72,9 +88,7 @@ BYTE/
 - **Node.js**: v18+ (v22 recommended)
 - **npm**: v9+
 
-### 1. Installation
-
-Clone the repository and install all dependencies:
+### 1. Setup Dependencies
 
 ```bash
 git clone https://github.com/rohit661199/BYTE.git
@@ -104,10 +118,9 @@ Open **[http://localhost:5173](http://localhost:5173)** in your browser!
 
 ## 🐳 Running via Docker & Docker-Compose
 
-Run the complete production-built application using Docker:
+Run the complete containerized application using Docker:
 
 ```bash
-# Build and launch containers
 docker-compose up --build
 ```
 
@@ -128,11 +141,11 @@ npm test
 
 ### Test Suite Output:
 ```bash
- ✓ tests/matchingEngine.test.ts (6 tests) 56ms
+ ✓ tests/matchingEngine.test.ts (8 tests) 72ms
 
  Test Files  1 passed (1)
-      Tests  6 passed (6)
-   Duration  1.76s
+      Tests  8 passed (8)
+   Duration  1.69s
 ```
 
 ---
@@ -141,14 +154,21 @@ npm test
 
 ### Base URL: `http://localhost:5000/api`
 
-### 1. Submit New Order
-- **Endpoint**: `POST /api/orders`
-- **Body**:
+### 1. Submit New Order (`POST /api/orders`)
+- **Limit Order Body**:
 ```json
 {
   "side": "BUY",
   "type": "LIMIT",
   "price": 100.00,
+  "quantity": 5
+}
+```
+- **Market Order Body**:
+```json
+{
+  "side": "BUY",
+  "type": "MARKET",
   "quantity": 5
 }
 ```
@@ -173,9 +193,7 @@ npm test
 }
 ```
 
-### 2. Get Order Book Depth
-- **Endpoint**: `GET /api/orderbook`
-- **Response (`200 OK`)**:
+### 2. Get Order Book Depth (`GET /api/orderbook`)
 ```json
 {
   "success": true,
@@ -186,9 +204,7 @@ npm test
 }
 ```
 
-### 3. Get Recent Trades
-- **Endpoint**: `GET /api/trades?limit=50`
-- **Response (`200 OK`)**:
+### 3. Get Recent Trades (`GET /api/trades?limit=50`)
 ```json
 {
   "success": true,
@@ -197,7 +213,7 @@ npm test
       "id": "trade_1785825166369_36881df4",
       "buyOrderId": "buy_1785825166348_a3e2f8ef",
       "sellOrderId": "sell_1785825166368_301df89f",
-      "price": 100,
+      "price": 95,
       "quantity": 3,
       "timestamp": "2026-08-04T06:32:46.369Z"
     }
@@ -205,9 +221,7 @@ npm test
 }
 ```
 
-### 4. Get Exchange Statistics
-- **Endpoint**: `GET /api/stats`
-- **Response (`200 OK`)**:
+### 4. Get Exchange Statistics (`GET /api/stats`)
 ```json
 {
   "success": true,
@@ -220,9 +234,7 @@ npm test
 }
 ```
 
-### 5. Cancel Order (Bonus)
-- **Endpoint**: `DELETE /api/orders/:id`
-- **Response (`200 OK`)**:
+### 5. Cancel Order (`DELETE /api/orders/:id`)
 ```json
 {
   "success": true,
@@ -234,21 +246,18 @@ npm test
 }
 ```
 
+### 6. Reset Exchange Engine (`POST /api/orders/reset`)
+```json
+{
+  "success": true,
+  "message": "Exchange engine reset successfully"
+}
+```
+
 ---
 
-## ⚙️ Core Matching Logic & Price-Time Priority
+## 🚀 Scaling Strategy & Architectural Analysis
 
-1. **Bids (Buy Orders)**: Sorted **Price Descending** (highest bid price matches first), then **Timestamp Ascending** (oldest first).
-2. **Asks (Sell Orders)**: Sorted **Price Ascending** (lowest ask price matches first), then **Timestamp Ascending** (oldest first).
-3. **Execution Price Policy**: Matches execute at the **resting maker order's price**.
-4. **Partial Fill Sweeps**: Sweeps through available opposing liquidity until remaining quantity reaches $0$ or no compatible price levels remain.
-
----
-
-## 🚀 Scaling Strategy & Future Improvements
-
-For full architectural deep-dives and performance scaling calculations (scaling to **100,000 active orders** and **10,000 trades/minute**), refer to [design-decisions.md](file:///c:/Users/rohit/OneDrive/Desktop/resumes/Projects%20copy/BYTE/design-decisions.md) and [architecture.md](file:///c:/Users/rohit/OneDrive/Desktop/resumes/Projects%20copy/BYTE/architecture.md).
-
-- **Ring Buffer Async Disk Batching**: Batching trade persistence writes every $50\text{ms}$ using background worker threads.
-- **Red-Black Tree + Linked List Orderbook**: Optimizing price level lookup to $O(\log P)$ and order cancellation to $O(1)$.
-- **Multi-Node Redis Pub/Sub Partitioning**: Horizontally scaling matching engine instances by trading symbol.
+For architectural design deep-dives, sequence diagrams, and throughput scaling analysis (scaling to **100,000 active orders** and **10,000 trades/minute**), refer to:
+- **[design-decisions.md](file:///c:/Users/rohit/OneDrive/Desktop/resumes/Projects%20copy/BYTE/design-decisions.md)**
+- **[architecture.md](file:///c:/Users/rohit/OneDrive/Desktop/resumes/Projects%20copy/BYTE/architecture.md)**
