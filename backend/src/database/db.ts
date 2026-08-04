@@ -157,6 +157,10 @@ if (!gState.__db__) {
 export const db = gState.__db__;
 export { pgPool };
 
+try {
+  initDatabase();
+} catch (_) {}
+
 export function initDatabase(): void {
   logger.info('Initializing database schema...');
 
