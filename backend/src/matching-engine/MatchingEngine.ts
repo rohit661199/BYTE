@@ -27,6 +27,7 @@ export class MatchingEngine {
     this.asks = [];
 
     for (const order of activeOrders) {
+      if (order.type === 'MARKET') continue; // Market orders never rest on orderbooks
       if (order.side === 'BUY') {
         this.insertBid(order);
       } else {
