@@ -40,4 +40,16 @@ export class OrderController {
       next(error);
     }
   }
+
+  static resetExchange(_req: Request, res: Response, next: NextFunction): void {
+    try {
+      OrderService.resetExchange();
+      res.status(200).json({
+        success: true,
+        message: 'Exchange engine reset successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

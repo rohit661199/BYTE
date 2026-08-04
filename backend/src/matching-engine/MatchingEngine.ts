@@ -40,6 +40,15 @@ export class MatchingEngine {
   }
 
   /**
+   * Resets in-memory bids and asks orderbooks to empty state.
+   */
+  public reset(): void {
+    this.bids = [];
+    this.asks = [];
+    logger.info('Matching engine in-memory state reset to empty.');
+  }
+
+  /**
    * Processes a newly submitted order through the matching algorithm.
    */
   public processOrder(incomingOrder: Order): { order: Order; trades: Trade[] } {

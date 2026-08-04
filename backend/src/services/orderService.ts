@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { db } from '../database/db.js';
 import { OrderModel } from '../models/orderModel.js';
 import { CreateOrderDTO, Order, Trade } from '../types/index.js';
 import { AppError } from '../middlewares/errorHandler.js';
@@ -66,5 +67,13 @@ export class OrderService {
 
   static getAllOrders(): Order[] {
     return OrderModel.getAll();
+  }
+
+  static resetExchange(): void {
+    db.prepare('DELETE FROM trades').run();
+    db.prepare('DELETE FROM orders').run();
+
+    matchingEngine.reset();
+    WebSocketService.broadcastStateUpdates();
   }
 }

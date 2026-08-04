@@ -40,4 +40,8 @@ export const apiService = {
     const res = await apiClient.delete<ApiResponse<Order>>(`/orders/${id}`);
     return res.data.data;
   },
+
+  async resetExchange(): Promise<void> {
+    await apiClient.post('/orders/reset');
+  },
 };
