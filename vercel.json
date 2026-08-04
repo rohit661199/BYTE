@@ -1,11 +1,5 @@
 {
   "version": 2,
-  "services": {
-    "frontend": {
-      "root": "frontend",
-      "framework": "vite"
-    }
-  },
   "builds": [
     {
       "src": "api/index.ts",
