@@ -1,7 +1,9 @@
 import axios from 'axios';
 import { ApiResponse, CreateOrderDTO, ExchangeStats, Order, OrderBook, Trade } from '../types/index';
 
-const API_BASE_URL = '/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL.replace(/\/$/, '')}/api`
+  : '/api';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,

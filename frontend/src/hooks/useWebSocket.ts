@@ -44,19 +44,26 @@ export function useWebSocket() {
   }, []);
 
   const connect = useCallback(() => {
-    // Skip WebSocket attempt on Vercel serverless domain since Vercel does not support TCP WebSockets
-    if (window.location.hostname.includes('vercel.app')) {
-      setIsConnected(false);
-      return;
-    }
-
     if (wsRef.current && (wsRef.current.readyState === WebSocket.CONNECTING || wsRef.current.readyState === WebSocket.OPEN)) {
       return;
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = window.location.port === '5173' ? `${window.location.hostname}:5000` : window.location.host;
-    const wsUrl = `${protocol}//${wsHost}/ws`;
+    let wsUrl = '';
+    const customApiUrl = import.meta.env.VITE_API_URL;
+    if (customApiUrl) {
+      const cleanUrl = customApiUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+      const protocol = customApiUrl.startsWith('https') ? 'wss:' : 'ws:';
+      wsUrl = `${protocol}//${cleanUrl}/ws`;
+    } else {
+      // Skip WebSocket attempt on Vercel domain if no custom backend is configured
+      if (window.location.hostname.includes('vercel.app')) {
+        setIsConnected(false);
+        return;
+      }
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsHost = window.location.port === '5173' ? `${window.location.hostname}:5000` : window.location.host;
+      wsUrl = `${protocol}//${wsHost}/ws`;
+    }
 
     try {
       const ws = new WebSocket(wsUrl);

@@ -1,20 +1,55 @@
 import path from 'path';
 import fs from 'fs';
+import { Pool } from 'pg';
 import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 
-// Top-level global state binding to ensure orderbook state persists across warm serverless invocations
-const gState = globalThis as any;
-if (!gState.__sharedOrdersMap__) {
-  gState.__sharedOrdersMap__ = new Map<string, any>();
-}
-if (!gState.__sharedTradesList__) {
-  gState.__sharedTradesList__ = [];
+let pgPool: Pool | null = null;
+
+const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+
+class PostgresAdapter {
+  private pool: Pool;
+
+  constructor(pool: Pool) {
+    this.pool = pool;
+  }
+
+  pragma(_str: string) {}
+
+  async exec(sql: string) {
+    const client = await this.pool.connect();
+    try {
+      await client.query(sql);
+    } finally {
+      client.release();
+    }
+  }
+
+  prepare(sql: string) {
+    let pgSql = sql.trim();
+    
+    // Replace ? parameters with $1, $2, etc. for PostgreSQL
+    let paramIndex = 1;
+    pgSql = pgSql.replace(/\?/g, () => `$${paramIndex++}`);
+
+    return {
+      run: (...params: any[]) => {
+        return this.pool.query(pgSql, params).then(res => ({ changes: res.rowCount || 0 }));
+      },
+      get: (...params: any[]) => {
+        return this.pool.query(pgSql, params).then(res => res.rows[0] || null);
+      },
+      all: (...params: any[]) => {
+        return this.pool.query(pgSql, params).then(res => res.rows);
+      }
+    };
+  }
 }
 
 class MemoryDB {
-  private ordersMap: Map<string, any> = gState.__sharedOrdersMap__;
-  private tradesList: any[] = gState.__sharedTradesList__;
+  private ordersMap = new Map<string, any>();
+  private tradesList: any[] = [];
 
   pragma(_str: string) {}
   exec(_sql: string) {}
@@ -81,9 +116,23 @@ class MemoryDB {
   }
 }
 
+const gState = globalThis as any;
+
 if (!gState.__db__) {
-  if (process.env.VERCEL) {
+  if (databaseUrl) {
+    logger.info('PostgreSQL connection detected. Initializing pg Pool connection adapter...');
+    pgPool = new Pool({
+      connectionString: databaseUrl,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+    });
+    gState.__db__ = new PostgresAdapter(pgPool);
+  } else if (process.env.VERCEL) {
     logger.info('Vercel serverless environment detected. Using persistent global In-Memory Database Adapter.');
+    if (!gState.__sharedOrdersMap__) gState.__sharedOrdersMap__ = new Map<string, any>();
+    if (!gState.__sharedTradesList__) gState.__sharedTradesList__ = [];
     gState.__db__ = new MemoryDB();
   } else {
     try {
@@ -98,15 +147,18 @@ if (!gState.__db__) {
       gState.__db__.pragma('foreign_keys = ON');
     } catch (err) {
       logger.warn('Native SQLite module better-sqlite3 not available. Using In-Memory database adapter.');
+      if (!gState.__sharedOrdersMap__) gState.__sharedOrdersMap__ = new Map<string, any>();
+      if (!gState.__sharedTradesList__) gState.__sharedTradesList__ = [];
       gState.__db__ = new MemoryDB();
     }
   }
 }
 
 export const db = gState.__db__;
+export { pgPool };
 
 export function initDatabase(): void {
-  logger.info('Initializing SQLite database schema...');
+  logger.info('Initializing database schema...');
 
   try {
     db.exec(`

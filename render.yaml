@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: byte-exchange-backend
+    env: node
+    plan: free
+    buildCommand: npm run setup && npm run build --workspace=backend
+    startCommand: npm start --prefix backend
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: CORS_ORIGIN
+        value: https://byte-nu.vercel.app
