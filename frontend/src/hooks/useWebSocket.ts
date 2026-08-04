@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { ExchangeStats, OrderBook, Trade } from '../types/index';
+import { apiService } from '../services/api';
 
 interface WsPayloadInit {
   orderBook: OrderBook;
@@ -24,67 +25,101 @@ export function useWebSocket() {
   });
   const [trades, setTrades] = useState<Trade[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Fast Initial REST Hydration so UI renders instantly without waiting for WS handshake
+  const fetchInitialData = useCallback(async () => {
+    try {
+      const [obData, statsData, tradesData] = await Promise.all([
+        apiService.getOrderBook(),
+        apiService.getStats(),
+        apiService.getTrades(20),
+      ]);
+      setOrderBook(obData);
+      setStats(statsData);
+      setTrades(tradesData);
+    } catch (err) {
+      console.error('REST initial hydration error:', err);
+    }
+  }, []);
 
   const connect = useCallback(() => {
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.CONNECTING || wsRef.current.readyState === WebSocket.OPEN)) {
+      return;
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const wsUrl = `${protocol}//${host}/ws`;
+    // Connect directly to backend port 5000 or host
+    const wsHost = window.location.port === '5173' ? `${window.location.hostname}:5000` : window.location.host;
+    const wsUrl = `${protocol}//${wsHost}/ws`;
 
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    try {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-    ws.onopen = () => {
-      setIsConnected(true);
-    };
+      ws.onopen = () => {
+        setIsConnected(true);
+      };
 
-    ws.onmessage = (event) => {
-      try {
-        const message: WsMessage = JSON.parse(event.data);
+      ws.onmessage = (event) => {
+        try {
+          const message: WsMessage = JSON.parse(event.data);
 
-        switch (message.type) {
-          case 'INIT': {
-            const initData = message.payload as WsPayloadInit;
-            setOrderBook(initData.orderBook);
-            setStats(initData.stats);
-            setTrades(initData.recentTrades);
-            break;
+          switch (message.type) {
+            case 'INIT': {
+              const initData = message.payload as WsPayloadInit;
+              setOrderBook(initData.orderBook);
+              setStats(initData.stats);
+              setTrades(initData.recentTrades);
+              break;
+            }
+            case 'ORDER_BOOK_UPDATE': {
+              setOrderBook(message.payload as OrderBook);
+              break;
+            }
+            case 'STATS_UPDATE': {
+              setStats(message.payload as ExchangeStats);
+              break;
+            }
+            case 'TRADE_EXECUTED': {
+              setTrades(message.payload as Trade[]);
+              break;
+            }
           }
-          case 'ORDER_BOOK_UPDATE': {
-            setOrderBook(message.payload as OrderBook);
-            break;
-          }
-          case 'STATS_UPDATE': {
-            setStats(message.payload as ExchangeStats);
-            break;
-          }
-          case 'TRADE_EXECUTED': {
-            setTrades(message.payload as Trade[]);
-            break;
-          }
+        } catch (err) {
+          console.error('Failed to parse WebSocket message', err);
         }
-      } catch (err) {
-        console.error('Failed to parse WebSocket message', err);
-      }
-    };
+      };
 
-    ws.onclose = () => {
-      setIsConnected(false);
-      // Auto-reconnect after 3 seconds
-      setTimeout(connect, 3000);
-    };
+      ws.onclose = () => {
+        setIsConnected(false);
+        wsRef.current = null;
+        if (!reconnectTimerRef.current) {
+          reconnectTimerRef.current = setTimeout(() => {
+            reconnectTimerRef.current = null;
+            connect();
+          }, 3000);
+        }
+      };
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      ws.close();
-    };
+      ws.onerror = () => {
+        setIsConnected(false);
+        ws.close();
+      };
+    } catch (err) {
+      console.error('WebSocket connection error:', err);
+    }
   }, []);
 
   useEffect(() => {
+    fetchInitialData();
     connect();
+
     return () => {
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       wsRef.current?.close();
     };
-  }, [connect]);
+  }, [connect, fetchInitialData]);
 
   return {
     isConnected,
@@ -94,5 +129,6 @@ export function useWebSocket() {
     setOrderBook,
     setStats,
     setTrades,
+    refreshData: fetchInitialData,
   };
 }
