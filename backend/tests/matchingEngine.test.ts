@@ -310,4 +310,88 @@ describe('MatchingEngine Unit Test Suite', () => {
     expect(largeBuy.status).toBe('FILLED');
     expect(largeBuy.remainingQuantity).toBe(0);
   });
+
+  it('7. should handle BUY MARKET order with partial liquidity cleanly without staying pending', () => {
+    const restingAsk: Order = {
+      id: 'ask_partial_market',
+      side: 'SELL',
+      type: 'LIMIT',
+      price: 100,
+      quantity: 4,
+      remainingQuantity: 4,
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+    };
+
+    engine.processOrder(restingAsk);
+
+    const marketBuy: Order = {
+      id: 'buy_market_partial',
+      side: 'BUY',
+      type: 'MARKET',
+      price: 0,
+      quantity: 10,
+      remainingQuantity: 10,
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+    };
+
+    const result = engine.processOrder(marketBuy);
+
+    expect(result.trades.length).toBe(1);
+    expect(result.trades[0].quantity).toBe(4);
+    expect(result.trades[0].price).toBe(100);
+    expect(marketBuy.status).toBe('FILLED');
+    expect(marketBuy.remainingQuantity).toBe(0);
+    expect(engine.getOrderBookSnapshot().bids.length).toBe(0);
+    expect(engine.getOrderBookSnapshot().asks.length).toBe(0);
+  });
+
+  it('8. should sweep multiple price levels for SELL MARKET order', () => {
+    const bid1: Order = {
+      id: 'bid_level_1',
+      side: 'BUY',
+      type: 'LIMIT',
+      price: 110,
+      quantity: 3,
+      remainingQuantity: 3,
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+    };
+
+    const bid2: Order = {
+      id: 'bid_level_2',
+      side: 'BUY',
+      type: 'LIMIT',
+      price: 105,
+      quantity: 5,
+      remainingQuantity: 5,
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+    };
+
+    engine.processOrder(bid1);
+    engine.processOrder(bid2);
+
+    const marketSell: Order = {
+      id: 'sell_market_sweep',
+      side: 'SELL',
+      type: 'MARKET',
+      price: 0,
+      quantity: 6,
+      remainingQuantity: 6,
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+    };
+
+    const result = engine.processOrder(marketSell);
+
+    expect(result.trades.length).toBe(2);
+    expect(result.trades[0].price).toBe(110);
+    expect(result.trades[0].quantity).toBe(3);
+    expect(result.trades[1].price).toBe(105);
+    expect(result.trades[1].quantity).toBe(3);
+    expect(marketSell.status).toBe('FILLED');
+    expect(marketSell.remainingQuantity).toBe(0);
+  });
 });

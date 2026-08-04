@@ -71,6 +71,20 @@ export class MatchingEngine {
       }
     }
 
+    // Ensure MARKET orders never remain pending or active after execution
+    if (incomingOrder.type === 'MARKET') {
+      if (incomingOrder.remainingQuantity > 0) {
+        if (executedTrades.length === 0) {
+          incomingOrder.status = 'CANCELLED';
+        } else {
+          incomingOrder.status = 'FILLED';
+          incomingOrder.remainingQuantity = 0;
+        }
+      } else {
+        incomingOrder.status = 'FILLED';
+      }
+    }
+
     // Persist incoming order state update
     OrderModel.update(incomingOrder);
 
