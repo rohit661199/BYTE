@@ -18,6 +18,19 @@ Designed and implemented following **Clean Architecture principles**, robust Pri
 
 ---
 
+## 📖 About BYTE Exchange
+
+**BYTE Exchange** is an interview-quality, production-grade **Central Limit Order Book (CLOB)** matching engine and live trading terminal built for the fictional asset **`BYTE`**.
+
+It simulates the core matching algorithms utilized by modern financial exchanges (such as NASDAQ, Binance, and Coinbase), strictly enforcing **Price-Time Priority (FIFO)** order matching rules, atomic orderbook execution, real-time WebSocket state streaming, and persistent database storage.
+
+### 🎯 Key Objectives & Design Philosophy
+- **Deterministic Order Matching**: Guarantees strict Price-Time Priority (FIFO) execution where maker price dictates trade execution price (`BUY 100 vs SELL 95` $\rightarrow$ Trade executed at $95$).
+- **Zero-Latency State Synchronization**: In-memory matching engine decoupled from async persistence, streaming live orderbook depth updates to frontend clients over WebSockets in real time.
+- **Production Resilience**: Multi-level market order depth sweeps, strict zero-liquidity guards, dual SQLite/PostgreSQL persistence layers, and 100% automated test coverage across 50 Vitest test suites.
+
+---
+
 ## 🌟 Project Overview & Key Features
 
 ### ⚙️ Core Matching Engine & Execution
