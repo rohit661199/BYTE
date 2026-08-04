@@ -4,14 +4,17 @@
 [![Node.js](https://img.shields.io/badge/Node.js-22.x-green.svg)](https://nodejs.org/)
 [![Express](https://img.shields.io/badge/Express-4.21-lightgrey.svg)](https://expressjs.com/)
 [![React](https://img.shields.io/badge/React-18.3-61dafb.svg)](https://react.dev/)
-[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38bdf8.svg)](https://tailwindcss.com/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL--Mode-blue.svg)](https://www.sqlite.org/)
 [![Vitest](https://img.shields.io/badge/Vitest-3.0-yellow.svg)](https://vitest.dev/)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ed.svg)](https://www.docker.com/)
+[![Deployment](https://img.shields.io/badge/Vercel%20%2B%20Render-Live-brightgreen.svg)](https://byte-nu.vercel.app)
 
 An interview-quality, production-grade **Order Matching Engine and Real-Time Trading Terminal** built for a fictional asset called **`BYTE`**.
 
-Designed and implemented following **Clean Architecture principles**, robust Price-Time Priority order matching, atomic SQLite durability, real-time WebSocket broadcasting, and automated Vitest unit testing.
+### 🔗 Live Production Links
+- **🌐 Live Trading Terminal**: [https://byte-nu.vercel.app](https://byte-nu.vercel.app)
+- **⚙️ Live Backend Service**: [https://byte-exchange-backend.onrender.com](https://byte-exchange-backend.onrender.com)
+
+Designed and implemented following **Clean Architecture principles**, robust Price-Time Priority order matching, persistent dual SQLite/PostgreSQL storage, real-time WebSocket broadcasting, and 50 automated Vitest unit tests.
 
 ---
 
@@ -21,24 +24,24 @@ Designed and implemented following **Clean Architecture principles**, robust Pri
 - **Price-Time Priority (FIFO) Matching**: In-memory matching engine supporting both **`LIMIT`** and **`MARKET`** orders.
   - **Bids (Buy Book)**: Sorted descending by price (highest price first); tie-breaker is oldest timestamp.
   - **Asks (Sell Book)**: Sorted ascending by price (lowest price first); tie-breaker is oldest timestamp.
-- **Specification-Compliant Execution Price**: Trade execution price strictly records at the **SELL order price** ($95$ in `BUY 100 vs SELL 95`), exactly adhering to the exchange specification.
+- **Specification-Compliant Execution Price**: Trade execution price strictly records at the **maker order price** ($95$ in `BUY 100 vs SELL 95`), exactly adhering to the ByteVox exchange specification.
 - **Partial Fills & Multi-Level Sweeps**: Handles partial order fills, remaining quantities, and sweeping multiple counter-order price levels.
-- **Market Order Liquidity Guard**: MARKET BUY executes against lowest available SELL asks; MARKET SELL executes against highest available BUY bids. Returns `"No liquidity available"` if opposite book is empty.
-- **Order Cancellation (Bonus)**: Instant cancellation of resting open orders from in-memory engine and database (`DELETE /api/orders/:id`).
+- **Market Order Liquidity Guard**: MARKET BUY executes against lowest available SELL asks; MARKET SELL executes against highest available BUY bids. Returns `"No liquidity available"` (HTTP 400) if opposite book is empty, and market orders never rest on orderbooks or stay pending.
+- **Order Cancellation**: Instant cancellation of resting open orders from in-memory engine and database (`DELETE /api/orders/:id`).
 - **Reset Engine Feature**: One-click reset feature (`POST /api/orders/reset`) wiping active orders, trade history, and statistics back to fresh state.
 
 ### 💾 Persistence & Real-Time Sync
-- **Atomic SQLite WAL Mode Persistence**: Zero-latency, synchronous persistence via `better-sqlite3` operating in Write-Ahead Logging (WAL) mode. Orderbook state is automatically hydrated from persistent DB rows on server startup.
+- **Atomic Persistence**: Dual SQLite WAL Mode & PostgreSQL connection pooling. Orderbook state is automatically hydrated from persistent database rows on server startup.
 - **Real-Time WebSockets (`ws`)**: Instant event streaming (`ORDER_BOOK_UPDATE`, `TRADE_EXECUTED`, `STATS_UPDATE`) to connected frontend clients.
 
 ### 🎨 Trading Dashboard UI
-- **Modern Dark Trading Terminal**: Built with React 18 + Vite + TypeScript + TailwindCSS.
+- **Modern Dark Trading Terminal**: Built with React 18 + Vite + TypeScript + TailwindCSS with custom stock market favicon (`📈`).
 - **Visual Liquidity Depth Bars**: Orderbook columns dynamically visualize volume depth ratios per price level.
 - **Real-Time Trade Stream**: Live executed trade stream showing Price, Quantity, and Time (`HH:mm:ss`).
 - **Order Entry Panel**: Tabbed BUY/SELL selector, LIMIT/MARKET toggle, quick quantity presets (+1, +5, +10, +25, +50), estimated total calculation, and Zod error toast display.
 
 ### 🧪 Quality Assurance & Containerization
-- **100% Vitest Unit Test Suite**: 8 automated unit tests covering full matches, partial fills, Price-Time priority sorting, market orders, order cancellations, and multi-level sweeps (**8/8 passed in 72ms**).
+- **50 Automated Vitest Unit Tests**: Complete 50-test regression suite covering 20 Limit Order tests and 20 Market Order tests including multi-level sweeps, partial fills, FIFO, price priority, and liquidity protections (**50/50 passed in <1s**).
 - **Docker & Docker-Compose**: Production-ready multi-stage Docker builds for Express backend and Nginx-served frontend.
 
 ---
