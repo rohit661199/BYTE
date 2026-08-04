@@ -3,9 +3,18 @@ import fs from 'fs';
 import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 
+// Top-level global state binding to ensure orderbook state persists across warm serverless invocations
+const gState = globalThis as any;
+if (!gState.__sharedOrdersMap__) {
+  gState.__sharedOrdersMap__ = new Map<string, any>();
+}
+if (!gState.__sharedTradesList__) {
+  gState.__sharedTradesList__ = [];
+}
+
 class MemoryDB {
-  private ordersMap = new Map<string, any>();
-  private tradesList: any[] = [];
+  private ordersMap: Map<string, any> = gState.__sharedOrdersMap__;
+  private tradesList: any[] = gState.__sharedTradesList__;
 
   pragma(_str: string) {}
   exec(_sql: string) {}
@@ -29,7 +38,7 @@ class MemoryDB {
           const [id, buy_order_id, sell_order_id, price, quantity, timestamp] = params;
           this.tradesList.push({ id, buy_order_id, sell_order_id, price, quantity, timestamp });
         } else if (s.startsWith('DELETE FROM trades')) {
-          this.tradesList = [];
+          this.tradesList.length = 0;
         } else if (s.startsWith('DELETE FROM orders')) {
           this.ordersMap.clear();
         }
@@ -72,12 +81,10 @@ class MemoryDB {
   }
 }
 
-const gDb = globalThis as any;
-
-if (!gDb.__db__) {
+if (!gState.__db__) {
   if (process.env.VERCEL) {
     logger.info('Vercel serverless environment detected. Using persistent global In-Memory Database Adapter.');
-    gDb.__db__ = new MemoryDB();
+    gState.__db__ = new MemoryDB();
   } else {
     try {
       const Database = require('better-sqlite3');
@@ -85,18 +92,18 @@ if (!gDb.__db__) {
       if (!fs.existsSync(dbDir)) {
         fs.mkdirSync(dbDir, { recursive: true });
       }
-      gDb.__db__ = new Database(path.resolve(process.cwd(), config.dbPath));
-      gDb.__db__.pragma('journal_mode = WAL');
-      gDb.__db__.pragma('synchronous = NORMAL');
-      gDb.__db__.pragma('foreign_keys = ON');
+      gState.__db__ = new Database(path.resolve(process.cwd(), config.dbPath));
+      gState.__db__.pragma('journal_mode = WAL');
+      gState.__db__.pragma('synchronous = NORMAL');
+      gState.__db__.pragma('foreign_keys = ON');
     } catch (err) {
       logger.warn('Native SQLite module better-sqlite3 not available. Using In-Memory database adapter.');
-      gDb.__db__ = new MemoryDB();
+      gState.__db__ = new MemoryDB();
     }
   }
 }
 
-export const db = gDb.__db__;
+export const db = gState.__db__;
 
 export function initDatabase(): void {
   logger.info('Initializing SQLite database schema...');
