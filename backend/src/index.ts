@@ -18,7 +18,10 @@ initDatabase();
 WebSocketService.initialize(server);
 
 // Production CORS & Middleware
-app.use(cors({ origin: config.corsOrigin || '*' }));
+app.use(cors({
+  origin: true,
+  credentials: true,
+}));
 app.use(express.json());
 
 // API Routes

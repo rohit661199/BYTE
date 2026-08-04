@@ -1,8 +1,12 @@
 import axios from 'axios';
 import { ApiResponse, CreateOrderDTO, ExchangeStats, Order, OrderBook, Trade } from '../types/index';
 
+const RENDER_BACKEND_URL = 'https://byte-exchange-backend.onrender.com';
+
 const API_BASE_URL = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL.replace(/\/$/, '')}/api`
+  : typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')
+  ? `${RENDER_BACKEND_URL}/api`
   : '/api';
 
 const apiClient = axios.create({
@@ -33,14 +37,18 @@ export const apiService = {
     return res.data.data;
   },
 
-  async createOrder(dto: CreateOrderDTO): Promise<Order> {
-    const res = await apiClient.post<ApiResponse<{ order: Order; trades: Trade[] }>>('/orders', dto);
-    return res.data.data.order;
+  async createOrder(order: CreateOrderDTO): Promise<{ order: Order; trades: Trade[] }> {
+    const res = await apiClient.post<ApiResponse<{ order: Order; trades: Trade[] }>>('/orders', order);
+    return res.data.data;
   },
 
-  async cancelOrder(id: string): Promise<Order> {
-    const res = await apiClient.delete<ApiResponse<Order>>(`/orders/${id}`);
+  async cancelOrder(orderId: string): Promise<Order> {
+    const res = await apiClient.delete<ApiResponse<Order>>(`/orders/${orderId}`);
     return res.data.data;
+  },
+
+  async resetEngine(): Promise<void> {
+    await apiClient.post('/orders/reset');
   },
 
   async resetExchange(): Promise<void> {
