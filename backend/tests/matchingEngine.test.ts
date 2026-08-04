@@ -230,6 +230,38 @@ describe('MatchingEngine Unit Test Suite', () => {
     expect(marketBuy.status).toBe('FILLED');
   });
 
+  it('5b. should execute MARKET SELL orders against highest BUY bid', () => {
+    const restingBid: Order = {
+      id: 'bid_limit_1',
+      side: 'BUY',
+      type: 'LIMIT',
+      price: 110,
+      quantity: 5,
+      remainingQuantity: 5,
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+    };
+
+    engine.processOrder(restingBid);
+
+    const marketSell: Order = {
+      id: 'sell_market_1',
+      side: 'SELL',
+      type: 'MARKET',
+      price: 0,
+      quantity: 2,
+      remainingQuantity: 2,
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+    };
+
+    const result = engine.processOrder(marketSell);
+    expect(result.trades.length).toBe(1);
+    expect(result.trades[0].quantity).toBe(2);
+    expect(result.trades[0].price).toBe(110);
+    expect(marketSell.status).toBe('FILLED');
+  });
+
   it('6. should sweep multiple counter-orders across price levels', () => {
     const askLevel1: Order = {
       id: 'ask_level_1',

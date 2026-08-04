@@ -30,6 +30,15 @@ export class OrderService {
     // Process order through matching engine
     const { order, trades } = matchingEngine.processOrder(newOrder);
 
+    // Check for MARKET order with no opposite-side liquidity
+    if (newOrder.type === 'MARKET' && trades.length === 0) {
+      // Mark market order as CANCELLED in DB
+      newOrder.status = 'CANCELLED';
+      OrderModel.update(newOrder);
+      WebSocketService.broadcastStateUpdates();
+      throw new AppError('No liquidity available', 400, 'NO_LIQUIDITY');
+    }
+
     // Broadcast updated state to all connected WebSockets
     WebSocketService.broadcastStateUpdates();
 
