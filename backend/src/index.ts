@@ -31,7 +31,7 @@ app.get('/health', (_req, res) => {
 // Centralized Error Handling Middleware
 app.use(errorHandler);
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   server.listen(config.port, () => {
     logger.info(`ByteExchange Server & WebSockets running on port ${config.port}`);
   });

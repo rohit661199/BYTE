@@ -49,7 +49,6 @@ export function useWebSocket() {
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Connect directly to backend port 5000 or host
     const wsHost = window.location.port === '5173' ? `${window.location.hostname}:5000` : window.location.host;
     const wsUrl = `${protocol}//${wsHost}/ws`;
 
@@ -98,16 +97,16 @@ export function useWebSocket() {
           reconnectTimerRef.current = setTimeout(() => {
             reconnectTimerRef.current = null;
             connect();
-          }, 3000);
+          }, 5000);
         }
       };
 
       ws.onerror = () => {
         setIsConnected(false);
-        ws.close();
+        try { ws.close(); } catch (_) {}
       };
-    } catch (err) {
-      console.error('WebSocket connection error:', err);
+    } catch (_) {
+      setIsConnected(false);
     }
   }, []);
 
@@ -115,7 +114,15 @@ export function useWebSocket() {
     fetchInitialData();
     connect();
 
+    // Fallback REST polling interval when WebSockets is disconnected (e.g. on serverless Vercel)
+    const pollInterval = setInterval(() => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        fetchInitialData();
+      }
+    }, 3000);
+
     return () => {
+      clearInterval(pollInterval);
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       wsRef.current?.close();
     };
