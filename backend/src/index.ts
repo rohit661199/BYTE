@@ -11,7 +11,7 @@ import { WebSocketService } from './services/websocketService.js';
 const app = express();
 const server = http.createServer(app);
 
-// Initialize SQLite Database Schema
+// Initialize Database Schema
 initDatabase();
 
 // Initialize WebSocket Broadcaster
@@ -20,8 +20,9 @@ WebSocketService.initialize(server);
 app.use(cors({ origin: config.corsOrigin }));
 app.use(express.json());
 
-// API Routes
+// API Routes (supports both /api prefix and direct Vercel serverless function rewrites)
 app.use('/api', apiRouter);
+app.use(apiRouter);
 
 // Healthcheck Endpoint
 app.get('/health', (_req, res) => {

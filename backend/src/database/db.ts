@@ -74,19 +74,24 @@ class MemoryDB {
   }
 }
 
-try {
-  const Database = require('better-sqlite3');
-  const dbDir = path.dirname(path.resolve(process.cwd(), config.dbPath));
-  if (!fs.existsSync(dbDir)) {
-    fs.mkdirSync(dbDir, { recursive: true });
-  }
-  db = new Database(path.resolve(process.cwd(), config.dbPath));
-  db.pragma('journal_mode = WAL');
-  db.pragma('synchronous = NORMAL');
-  db.pragma('foreign_keys = ON');
-} catch (err) {
-  logger.warn('Native SQLite module better-sqlite3 not available. Using In-Memory database adapter.');
+if (process.env.VERCEL) {
+  logger.info('Vercel serverless environment detected. Using In-Memory Database Adapter.');
   db = new MemoryDB();
+} else {
+  try {
+    const Database = require('better-sqlite3');
+    const dbDir = path.dirname(path.resolve(process.cwd(), config.dbPath));
+    if (!fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true });
+    }
+    db = new Database(path.resolve(process.cwd(), config.dbPath));
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
+    db.pragma('foreign_keys = ON');
+  } catch (err) {
+    logger.warn('Native SQLite module better-sqlite3 not available. Using In-Memory database adapter.');
+    db = new MemoryDB();
+  }
 }
 
 export { db };
