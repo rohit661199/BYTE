@@ -44,6 +44,12 @@ export function useWebSocket() {
   }, []);
 
   const connect = useCallback(() => {
+    // Skip WebSocket attempt on Vercel serverless domain since Vercel does not support TCP WebSockets
+    if (window.location.hostname.includes('vercel.app')) {
+      setIsConnected(false);
+      return;
+    }
+
     if (wsRef.current && (wsRef.current.readyState === WebSocket.CONNECTING || wsRef.current.readyState === WebSocket.OPEN)) {
       return;
     }
