@@ -1,15 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
+import { matchingEngine } from '../matching-engine/MatchingEngine.js';
 
 export class OrderbookController {
   static getOrderBook(_req: Request, res: Response, next: NextFunction): void {
     try {
-      // OrderBook snapshot will be fetched from MatchingEngine (integrated in Milestone 3)
+      const orderBook = matchingEngine.getOrderBookSnapshot();
       res.status(200).json({
         success: true,
-        data: {
-          bids: [],
-          asks: [],
-        },
+        data: orderBook,
       });
     } catch (error) {
       next(error);

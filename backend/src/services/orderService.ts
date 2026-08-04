@@ -1,10 +1,17 @@
 import { randomUUID } from 'crypto';
 import { OrderModel } from '../models/orderModel.js';
-import { CreateOrderDTO, Order } from '../types/index.js';
+import { CreateOrderDTO, Order, Trade } from '../types/index.js';
 import { AppError } from '../middlewares/errorHandler.js';
+import { matchingEngine } from '../matching-engine/MatchingEngine.js';
+import { WebSocketService } from './websocketService.js';
+
+export interface CreateOrderResult {
+  order: Order;
+  trades: Trade[];
+}
 
 export class OrderService {
-  static createOrder(dto: CreateOrderDTO): Order {
+  static createOrder(dto: CreateOrderDTO): CreateOrderResult {
     const newOrder: Order = {
       id: `${dto.side.toLowerCase()}_${Date.now()}_${randomUUID().substring(0, 8)}`,
       side: dto.side,
@@ -16,8 +23,16 @@ export class OrderService {
       createdAt: new Date().toISOString(),
     };
 
+    // Save initial order in SQLite DB
     OrderModel.create(newOrder);
-    return newOrder;
+
+    // Process order through matching engine
+    const { order, trades } = matchingEngine.processOrder(newOrder);
+
+    // Broadcast updated state to all connected WebSockets
+    WebSocketService.broadcastStateUpdates();
+
+    return { order, trades };
   }
 
   static getOrderById(id: string): Order {
@@ -34,10 +49,17 @@ export class OrderService {
       throw new AppError(`Cannot cancel order in status ${order.status}`, 400, 'INVALID_ORDER_STATE');
     }
 
+    // Cancel in matching engine memory
+    matchingEngine.cancelOrder(id);
+
+    // Cancel in database
     const success = OrderModel.cancel(id);
     if (!success) {
       throw new AppError('Failed to cancel order', 400, 'CANCELLATION_FAILED');
     }
+
+    // Broadcast updated state to all connected WebSockets
+    WebSocketService.broadcastStateUpdates();
 
     return { ...order, status: 'CANCELLED' };
   }
