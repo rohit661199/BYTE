@@ -3,8 +3,6 @@ import fs from 'fs';
 import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 
-let db: any = null;
-
 class MemoryDB {
   private ordersMap = new Map<string, any>();
   private tradesList: any[] = [];
@@ -74,27 +72,31 @@ class MemoryDB {
   }
 }
 
-if (process.env.VERCEL) {
-  logger.info('Vercel serverless environment detected. Using In-Memory Database Adapter.');
-  db = new MemoryDB();
-} else {
-  try {
-    const Database = require('better-sqlite3');
-    const dbDir = path.dirname(path.resolve(process.cwd(), config.dbPath));
-    if (!fs.existsSync(dbDir)) {
-      fs.mkdirSync(dbDir, { recursive: true });
+const gDb = globalThis as any;
+
+if (!gDb.__db__) {
+  if (process.env.VERCEL) {
+    logger.info('Vercel serverless environment detected. Using persistent global In-Memory Database Adapter.');
+    gDb.__db__ = new MemoryDB();
+  } else {
+    try {
+      const Database = require('better-sqlite3');
+      const dbDir = path.dirname(path.resolve(process.cwd(), config.dbPath));
+      if (!fs.existsSync(dbDir)) {
+        fs.mkdirSync(dbDir, { recursive: true });
+      }
+      gDb.__db__ = new Database(path.resolve(process.cwd(), config.dbPath));
+      gDb.__db__.pragma('journal_mode = WAL');
+      gDb.__db__.pragma('synchronous = NORMAL');
+      gDb.__db__.pragma('foreign_keys = ON');
+    } catch (err) {
+      logger.warn('Native SQLite module better-sqlite3 not available. Using In-Memory database adapter.');
+      gDb.__db__ = new MemoryDB();
     }
-    db = new Database(path.resolve(process.cwd(), config.dbPath));
-    db.pragma('journal_mode = WAL');
-    db.pragma('synchronous = NORMAL');
-    db.pragma('foreign_keys = ON');
-  } catch (err) {
-    logger.warn('Native SQLite module better-sqlite3 not available. Using In-Memory database adapter.');
-    db = new MemoryDB();
   }
 }
 
-export { db };
+export const db = gDb.__db__;
 
 export function initDatabase(): void {
   logger.info('Initializing SQLite database schema...');

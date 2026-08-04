@@ -288,5 +288,9 @@ export class MatchingEngine {
   }
 }
 
-// Global Singleton Instance of the Engine
-export const matchingEngine = new MatchingEngine();
+// Global Singleton Instance of the Engine (persisted on globalThis across serverless invocations)
+const gEngine = globalThis as any;
+if (!gEngine.__matchingEngine__) {
+  gEngine.__matchingEngine__ = new MatchingEngine();
+}
+export const matchingEngine: MatchingEngine = gEngine.__matchingEngine__;

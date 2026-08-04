@@ -120,15 +120,7 @@ export function useWebSocket() {
     fetchInitialData();
     connect();
 
-    // Fallback REST polling interval when WebSockets is disconnected (e.g. on serverless Vercel)
-    const pollInterval = setInterval(() => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-        fetchInitialData();
-      }
-    }, 3000);
-
     return () => {
-      clearInterval(pollInterval);
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       wsRef.current?.close();
     };
