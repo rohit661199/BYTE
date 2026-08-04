@@ -46,7 +46,7 @@ describe('MatchingEngine Unit Test Suite', () => {
 
     expect(result.trades.length).toBe(1);
     expect(result.trades[0].quantity).toBe(10);
-    expect(result.trades[0].price).toBe(100); // Maker price execution
+    expect(result.trades[0].price).toBe(95); // SELL order price per specification
     expect(buyOrder.status).toBe('FILLED');
     expect(sellOrder.status).toBe('FILLED');
     expect(buyOrder.remainingQuantity).toBe(0);
@@ -55,6 +55,37 @@ describe('MatchingEngine Unit Test Suite', () => {
     const snapshot = engine.getOrderBookSnapshot();
     expect(snapshot.bids.length).toBe(0);
     expect(snapshot.asks.length).toBe(0);
+  });
+
+  it('1b. should record trade price as 100 when BUY 100 vs SELL 100', () => {
+    const buyOrder: Order = {
+      id: 'buy_same_price',
+      side: 'BUY',
+      type: 'LIMIT',
+      price: 100,
+      quantity: 10,
+      remainingQuantity: 10,
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+    };
+
+    const sellOrder: Order = {
+      id: 'sell_same_price',
+      side: 'SELL',
+      type: 'LIMIT',
+      price: 100,
+      quantity: 10,
+      remainingQuantity: 10,
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+    };
+
+    engine.processOrder(buyOrder);
+    const result = engine.processOrder(sellOrder);
+
+    expect(result.trades.length).toBe(1);
+    expect(result.trades[0].quantity).toBe(10);
+    expect(result.trades[0].price).toBe(100);
   });
 
   it('2. should handle partial fills correctly', () => {
@@ -85,7 +116,7 @@ describe('MatchingEngine Unit Test Suite', () => {
 
     expect(result.trades.length).toBe(1);
     expect(result.trades[0].quantity).toBe(3);
-    expect(result.trades[0].price).toBe(100);
+    expect(result.trades[0].price).toBe(95); // SELL order price per specification
     expect(sellOrder.status).toBe('FILLED');
     expect(buyOrder.status).toBe('PARTIALLY_FILLED');
     expect(buyOrder.remainingQuantity).toBe(7);

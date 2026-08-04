@@ -149,7 +149,7 @@ export class MatchingEngine {
 
       // Calculate fill quantity
       const matchQuantity = Math.min(sellOrder.remainingQuantity, bestBid.remainingQuantity);
-      const executionPrice = bestBid.price; // Trade executes at resting maker price
+      const executionPrice = sellOrder.type === 'MARKET' ? bestBid.price : sellOrder.price; // Trade executes at SELL order price per assignment spec
 
       // Execute trade
       sellOrder.remainingQuantity -= matchQuantity;
