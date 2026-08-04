@@ -28,6 +28,23 @@ app.use(express.json());
 app.use('/api', apiRouter);
 app.use(apiRouter);
 
+// Root Welcome Endpoint
+app.get('/', (_req, res) => {
+  res.json({
+    name: 'BYTE Exchange Backend API',
+    status: 'online',
+    version: '1.0.0',
+    frontend: 'https://byte-nu.vercel.app',
+    health: '/health',
+    endpoints: {
+      orderbook: '/api/orderbook',
+      orders: '/api/orders',
+      trades: '/api/trades',
+      stats: '/api/stats',
+    },
+  });
+});
+
 // Healthcheck Endpoint with Connection Diagnostics
 app.get('/health', async (_req, res) => {
   try {
