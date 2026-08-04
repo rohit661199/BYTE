@@ -54,12 +54,9 @@ export function useWebSocket() {
       const cleanUrl = customApiUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
       const protocol = customApiUrl.startsWith('https') ? 'wss:' : 'ws:';
       wsUrl = `${protocol}//${cleanUrl}/ws`;
+    } else if (window.location.hostname.includes('vercel.app')) {
+      wsUrl = 'wss://byte-exchange-backend.onrender.com/ws';
     } else {
-      // Skip WebSocket attempt on Vercel domain if no custom backend is configured
-      if (window.location.hostname.includes('vercel.app')) {
-        setIsConnected(false);
-        return;
-      }
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsHost = window.location.port === '5173' ? `${window.location.hostname}:5000` : window.location.host;
       wsUrl = `${protocol}//${wsHost}/ws`;

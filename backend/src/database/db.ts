@@ -15,7 +15,7 @@ class PostgresAdapter {
     this.pool = pool;
   }
 
-  pragma(_str: string) {}
+  pragma(_str: string) { }
 
   async exec(sql: string) {
     const client = await this.pool.connect();
@@ -28,7 +28,7 @@ class PostgresAdapter {
 
   prepare(sql: string) {
     let pgSql = sql.trim();
-    
+
     // Replace ? parameters with $1, $2, etc. for PostgreSQL
     let paramIndex = 1;
     pgSql = pgSql.replace(/\?/g, () => `$${paramIndex++}`);
@@ -51,8 +51,8 @@ class MemoryDB {
   private ordersMap = new Map<string, any>();
   private tradesList: any[] = [];
 
-  pragma(_str: string) {}
-  exec(_sql: string) {}
+  pragma(_str: string) { }
+  exec(_sql: string) { }
 
   prepare(sql: string) {
     const s = sql.trim();
@@ -157,10 +157,6 @@ if (!gState.__db__) {
 export const db = gState.__db__;
 export { pgPool };
 
-try {
-  initDatabase();
-} catch (_) {}
-
 export function initDatabase(): void {
   logger.info('Initializing database schema...');
 
@@ -193,7 +189,7 @@ export function initDatabase(): void {
 
       CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp DESC);
     `);
-  } catch (_) {}
+  } catch (_) { }
 
   logger.info('Database schema initialized successfully.');
 }

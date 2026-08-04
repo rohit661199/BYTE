@@ -20,27 +20,23 @@ export class MatchingEngine {
    * Hydrates the in-memory engine state from SQLite on server startup.
    */
   public hydrateFromDatabase(): void {
-    try {
-      logger.info('Hydrating matching engine from persistent database...');
-      const activeOrders = OrderModel.getActiveOrders();
+    logger.info('Hydrating matching engine from persistent database...');
+    const activeOrders = OrderModel.getActiveOrders();
 
-      this.bids = [];
-      this.asks = [];
+    this.bids = [];
+    this.asks = [];
 
-      for (const order of activeOrders) {
-        if (order.side === 'BUY') {
-          this.insertBid(order);
-        } else {
-          this.insertAsk(order);
-        }
+    for (const order of activeOrders) {
+      if (order.side === 'BUY') {
+        this.insertBid(order);
+      } else {
+        this.insertAsk(order);
       }
-
-      logger.info(
-        `Matching engine hydrated successfully. Active Bids: ${this.bids.length}, Active Asks: ${this.asks.length}`
-      );
-    } catch (err) {
-      logger.warn('Matching engine database hydration skipped (schema not ready or empty).');
     }
+
+    logger.info(
+      `Matching engine hydrated successfully. Active Bids: ${this.bids.length}, Active Asks: ${this.asks.length}`
+    );
   }
 
   /**
