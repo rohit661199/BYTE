@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Activity, Wifi, WifiOff, RotateCcw, Loader2 } from 'lucide-react';
+import { Activity, Wifi, RotateCcw, Loader2 } from 'lucide-react';
 import { apiService } from '../services/api';
 
 interface NavbarProps {
@@ -43,7 +43,7 @@ export function Navbar({ isConnected, onResetCompleted }: NavbarProps) {
         </div>
 
         <div className="flex items-center space-x-3">
-          {/* WebSocket Status Indicator */}
+          {/* Sync Status Indicator */}
           <div className="flex items-center space-x-2 text-xs font-medium px-3 py-1.5 rounded-full bg-slate-800 border border-slate-700">
             {isConnected ? (
               <>
@@ -52,8 +52,8 @@ export function Navbar({ isConnected, onResetCompleted }: NavbarProps) {
               </>
             ) : (
               <>
-                <WifiOff className="w-3.5 h-3.5 text-amber-400" />
-                <span className="text-amber-400">Reconnecting...</span>
+                <Wifi className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                <span className="text-cyan-400">REST Live Syncing</span>
               </>
             )}
           </div>
