@@ -5,22 +5,41 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: {
-          50: '#f0f9ff',
-          100: '#e0f2fe',
-          500: '#0284c7',
-          600: '#0284c7',
-          900: '#0c4a6e',
+        byte: {
+          bg: 'var(--bg-app)',
+          surface: 'var(--bg-surface)',
+          secondary: 'var(--bg-surface-secondary)',
+          border: 'var(--border-app)',
+          'border-subtle': 'var(--border-subtle)',
+          primary: 'var(--text-primary)',
+          muted: 'var(--text-secondary)',
+          tertiary: 'var(--text-tertiary)',
+          accent: 'var(--accent)',
+          'accent-hover': 'var(--accent-hover)',
+          'accent-contrast': 'var(--accent-contrast)',
         },
-        buy: {
-          DEFAULT: '#10b981',
-          light: '#ecfdf5',
-          dark: '#064e3b',
+        bull: {
+          DEFAULT: '#22B982',
+          surface: 'rgba(34, 185, 130, 0.12)',
+          border: 'rgba(34, 185, 130, 0.28)',
         },
-        sell: {
-          DEFAULT: '#ef4444',
-          light: '#fef2f2',
-          dark: '#7f1d1d',
+        bear: {
+          DEFAULT: '#EF6262',
+          surface: 'rgba(239, 98, 98, 0.12)',
+          border: 'rgba(239, 98, 98, 0.28)',
+        },
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
+      },
+      animation: {
+        'ticker': 'ticker 35s linear infinite',
+      },
+      keyframes: {
+        ticker: {
+          '0%': { transform: 'translateX(0%)' },
+          '100%': { transform: 'translateX(-50%)' },
         },
       },
     },

@@ -76,12 +76,12 @@ export function ActiveOrders({ orders, onOrderCancelled }: ActiveOrdersProps) {
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-medium ${
                         order.status === 'FILLED'
-                          ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
+                          ? 'bg-bull/10 text-bull border border-bull/20'
                           : order.status === 'PARTIALLY_FILLED'
-                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                            ? 'bg-byte-accent/15 text-byte-accent border border-byte-accent/30'
                             : order.status === 'CANCELLED'
-                              ? 'bg-slate-800 text-slate-400 border border-slate-700'
-                              : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                              ? 'bg-byte-secondary text-byte-muted border border-byte-border'
+                              : 'bg-byte-secondary text-byte-primary border border-byte-border'
                       }`}
                     >
                       {order.status}

@@ -2,29 +2,125 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Light Mode Palette */
+  --bg-app: #F7F7F3;
+  --bg-surface: #FFFFFF;
+  --bg-surface-secondary: #EFEFE8;
+  --border-app: #E3E3DA;
+  --border-subtle: #ECECE4;
+  --text-primary: #20251F;
+  --text-secondary: #74796F;
+  --text-tertiary: #9B9F96;
+  --accent: #687451;
+  --accent-hover: #596443;
+  --accent-contrast: #FFFFFF;
+  --bull: #22B982;
+  --bull-surface: rgba(34, 185, 130, 0.10);
+  --bear: #EF6262;
+  --bear-surface: rgba(239, 98, 98, 0.10);
+}
+
+.dark {
+  /* Dark Mode Palette (Default) */
+  --bg-app: #0E141B;
+  --bg-surface: #161E27;
+  --bg-surface-secondary: #202A34;
+  --border-app: #303A43;
+  --border-subtle: #242D36;
+  --text-primary: #F2F0E9;
+  --text-secondary: #9BA49F;
+  --text-tertiary: #687178;
+  --accent: #E7BD72;
+  --accent-hover: #D9AD60;
+  --accent-contrast: #0E141B;
+  --bull: #22B982;
+  --bull-surface: rgba(34, 185, 130, 0.10);
+  --bear: #EF6262;
+  --bear-surface: rgba(239, 98, 98, 0.10);
+}
+
 @layer base {
+  * {
+    border-color: var(--border-app);
+  }
+
+  html {
+    background-color: var(--bg-app);
+    color-scheme: dark light;
+  }
+
   body {
-    @apply bg-slate-950 text-slate-100 font-sans;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background-color 0.15s ease, color 0.15s ease;
+    overflow-x: hidden;
+  }
+
+  /* Critical: reset form elements to match active theme surfaces */
+  input, select, textarea {
+    background-color: var(--bg-surface-secondary);
+    color: var(--text-primary);
+    border-color: var(--border-app);
+    outline: none;
+  }
+
+  input::placeholder, textarea::placeholder {
+    color: var(--text-secondary);
+    opacity: 0.6;
+  }
+
+  /* Tabular numbers for clean financial numbers */
+  .tnum, [data-tabular] {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
   }
 
   code, pre, .font-mono {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
   }
 }
 
-/* Custom scrollbars for trading tables */
+/* Restrained Minimal Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 3px;
+  background: var(--border-app);
+  border-radius: 2px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: var(--text-secondary);
+}
+
+/* Subtle focus ring */
+:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Subtle perspective utilities for realistic 3D terminal mockup */
+.perspective-1000 {
+  perspective: 1000px;
+}
+.rotate-x-6 {
+  transform: rotateX(6deg) rotateY(-4deg) rotateZ(1deg);
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

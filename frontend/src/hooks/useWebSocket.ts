@@ -35,9 +35,18 @@ export function useWebSocket() {
         apiService.getStats(),
         apiService.getTrades(20),
       ]);
-      setOrderBook(obData);
-      setStats(statsData);
-      setTrades(tradesData);
+      if (obData) {
+        setOrderBook({
+          bids: Array.isArray(obData.bids) ? obData.bids : [],
+          asks: Array.isArray(obData.asks) ? obData.asks : [],
+        });
+      }
+      if (statsData) {
+        setStats(statsData);
+      }
+      if (Array.isArray(tradesData)) {
+        setTrades(tradesData);
+      }
     } catch (err) {
       console.error('REST initial hydration error:', err);
     }
@@ -77,21 +86,32 @@ export function useWebSocket() {
           switch (message.type) {
             case 'INIT': {
               const initData = message.payload as WsPayloadInit;
-              setOrderBook(initData.orderBook);
-              setStats(initData.stats);
-              setTrades(initData.recentTrades);
+              if (initData?.orderBook) {
+                setOrderBook({
+                  bids: Array.isArray(initData.orderBook.bids) ? initData.orderBook.bids : [],
+                  asks: Array.isArray(initData.orderBook.asks) ? initData.orderBook.asks : [],
+                });
+              }
+              if (initData?.stats) setStats(initData.stats);
+              if (Array.isArray(initData?.recentTrades)) setTrades(initData.recentTrades);
               break;
             }
             case 'ORDER_BOOK_UPDATE': {
-              setOrderBook(message.payload as OrderBook);
+              const payload = message.payload as OrderBook;
+              if (payload) {
+                setOrderBook({
+                  bids: Array.isArray(payload.bids) ? payload.bids : [],
+                  asks: Array.isArray(payload.asks) ? payload.asks : [],
+                });
+              }
               break;
             }
             case 'STATS_UPDATE': {
-              setStats(message.payload as ExchangeStats);
+              if (message.payload) setStats(message.payload as ExchangeStats);
               break;
             }
             case 'TRADE_EXECUTED': {
-              setTrades(message.payload as Trade[]);
+              if (Array.isArray(message.payload)) setTrades(message.payload as Trade[]);
               break;
             }
           }
