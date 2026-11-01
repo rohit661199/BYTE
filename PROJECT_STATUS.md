@@ -92,12 +92,51 @@
 
 ---
 
-## 4. Phase 02 Technical Implementation Plan (Awaiting User Approval)
+## 4. Phase 02 Execution Progress (v2.4.0)
 
 **Phase 02 Focus:** Multi-Asset Engine Manager, Instrument Registry, Order-Book Liquidity Simulator & Session Architecture
-1. **`InstrumentRegistry.ts`**: Launch equities (`AAPL`, `MSFT`, `NVDA`, `TSLA`, `AMZN`) & crypto (`BTC-USD`, `ETH-USD`, `SOL-USD`, `BYTE-USD`) with tick, lot, and session rules. Clearly label baseline prices & fundamentals as temporary development fixtures.
-2. **`EngineManager.ts`**: In-memory FIFO `MatchingEngine` instance per symbol (`Map<string, MatchingEngine>`) with default fallback to `BYTE`.
-3. **`MarketSessionManager.ts`**: US market session tracking using `America/New_York` timezone (DST-aware, weekends, exchange holidays). After-Market Orders (AMO) queueing.
-4. **`OrderBookLiquiditySimulator.ts`**: Institutional electronic order-book liquidity simulator posting resting limit order ladders (not an AMM or DeFi pool).
-5. **Fractional Share Validation**: Scaled micro-share arithmetic down to 0.001 shares with exact decimal quantity validation.
-6. **Zero-Regression Testing**: 100% pass guarantee for all 50 existing Vitest tests.
+- [x] **Step 1: Financial Precision & Canonical InstrumentRegistry** (COMPLETED & VERIFIED)
+  - `MathPrecision.ts`: `BigInt` scaled financial arithmetic (Price $10^4$, Qty $10^6$, Cash $10^2$), round half-up to cents, decimal string serialization.
+  - `InstrumentRegistry.ts`: Launch universe (Equities: `AAPL`, `MSFT`, `NVDA`, `TSLA`, `AMZN`; Crypto: `BTC-USD`, `ETH-USD`, `SOL-USD`; Utility: `BYTE-USD`), canonical symbol normalization (`BYTE` $\rightarrow$ `BYTE-USD`).
+  - Unit tests: 21 new tests in `step1_precision_registry.test.ts` (71/71 total tests passing).
+- [x] **Step 2: Versioned Database Migrations & EngineManager Architecture** (COMPLETED, HARDENED & VERIFIED)
+  - Versioned migration engine with `schema_migrations` tracking and transactional rollback (`BEGIN IMMEDIATE ... COMMIT / ROLLBACK`).
+  - Safe non-destructive CHECK constraint upgrade for `QUEUED_AMO` and `REJECTED` preserving all existing data.
+  - Migrations `001_base_tables.ts` & `002_multi_asset_amo.ts` with safe column inspection and data normalization (`BYTE` $\rightarrow$ `BYTE-USD`).
+  - `EngineManager.ts`: Independent `MatchingEngine` instances with canonical alias resolution (`BYTE` $\equiv$ `BYTE-USD`).
+  - Models hardened: `OrderModel` (strict symbol scoping, atomic AMO dispatch, AMO rejection, selective simulator cancellation) & `TradeModel` (strict symbol scoping).
+  - Tests: **92 / 92 tests passing** across 5 test suites (50 original + 21 Step 1 + 6 migrations + 15 Step 2 hardening). TypeScript: 0 errors. Frontend build: 0 errors.
+- [x] **Step 3: ExchangeCalendar, MarketSessionManager & Funds Reservation Adapter** (COMPLETED, HARDENED & VERIFIED WITH FINAL SAFETY CORRECTIONS)
+  - `ExchangeCalendar.ts`: `America/New_York` timezone, dynamic DST resolution, weekends, 10 official US holidays, early close days (13:00 ET), trading sessions (`PRE_MARKET`, `REGULAR`, `AFTER_HOURS`, `CLOSED`), and DST-immune `getNextSessionOpen`.
+  - **Historical Juneteenth Rule Corrected (SR-NYSE-2021-56):** Friday June 18, 2021 treated as a normal regular trading day (`year >= 2022` requirement for NYSE holiday closure). Monday June 20, 2022 verified as the first official observed Juneteenth holiday.
+  - `MarketSessionManager.ts`: 24/7 continuous trading for crypto/utility, equity session admission, AMO limit queuing, market order rejection outside regular hours, ±10% price collar enforcement, atomic market open dispatch, and durable crash recovery.
+  - **Server-Derived Time & Spoofing Protection:** Implemented authoritative `TimeProvider.ts`. Removed client `submissionTime` from Zod validation and DTOs. Client payload timestamps cannot bypass market session restrictions.
+  - **Durable AMO Crash Recovery (`amo_dispatch_log`):** Atomic transitions (`QUEUED_AMO` $\rightarrow$ `CLAIMED` $\rightarrow$ engine execution $\rightarrow$ `PROCESSED`). Startup recovery checks SQLite trades and reconciles interrupted dispatches safely without duplicate fills or trades.
+  - **Transaction-Safe Partial Fill Preservation:** When engine throws, SQLite trades are inspected first; orders with partial executions are never marked `REJECTED` or released, preserving legitimate partial fills and their funds reservations.
+  - `FundsReservationAdapter.ts`: `IFundsReservationAdapter` with `NoOpFundsReservationAdapter` returning explicit `SIMULATED_NOOP` status and notional cash in BigInt cents with idempotent release and commit operations.
+  - `AmoScheduler.ts`: Automatic market-open scheduler and recovery runner with startup crash reconciliation, timer targeting `getNextSessionOpen`, concurrency locking, and failure recovery.
+  - Actual Order Submission Pipeline: Connected `OrderController` and `OrderService` with session admission, multi-asset engine routing, `X-BYTE-Reservation: simulated-preview` response header, and reservation preview metadata.
+  - Tests: **138 / 138 total tests passing** across 7 test suites (50 original + 21 Step 1 + 6 migrations + 17 Step 2 hardening + 18 Step 3 calendar/session + 16 Step 3 integration & edge cases). TypeScript: 0 errors. Frontend build: 0 errors.
+- [x] **Step 4: Order-Book Liquidity Simulator (Resting Limit Orders)** (COMPLETED & VERIFIED)
+  - `LiquiditySimulator.ts`: Autonomous simulated market maker running on a 3-second heartbeat.
+  - Maintains up to 5 bid and 5 ask resting limit orders per eligible active instrument.
+  - Deterministic pseudo-random pricing within ±2% of reference price, strictly complying with instrument `tickSizeBasis` and `quantityStepMicro`.
+  - Multi-asset support across equities, crypto, and `BYTE-USD`.
+  - Distinguishable ownership: `owner_type = 'SIMULATOR'` with deterministic `user_id = 'SIMULATOR_MM'`.
+  - Automatic order recycling: Cancels and refreshes stale simulator orders when drift exceeds threshold or book depth thins out.
+  - Session-aware: Honors `MarketSessionManager` (pauses equity quoting outside regular trading hours; quotes 24/7 on crypto and BYTE-USD).
+  - Tests: **31 new tests in `step4_liquidity_simulator.test.ts`** (169 / 169 total tests passing).
+
+- [x] **Step 5: Order Service Integration & Precision Compatibility** (COMPLETED & VERIFIED)
+  - **Unified 11-Step Pipeline:** Resolved canonical instruments, normalized symbols/aliases, validated types/sides/prices/quantities, enforced instrument tick size (`tickSizeBasis`) and lot step (`quantityStepMicro`), calculated exact notional via `MathPrecision` with minimum order quantity and $1.00 USD notional validation, enforced market sessions, routed to dedicated canonical engines, persisted orders/trades atomically, and returned consistent API/WebSocket responses.
+  - **Precision Compatibility & Shadow Columns:** Created versioned migration `003_precision_shadow_columns.ts` adding integer shadow columns (`price_basis`, `quantity_micro`, `remaining_quantity_micro` on `orders`, and `price_basis`, `quantity_micro` on `trades`) with safe non-destructive backfill of existing records.
+  - **Zero Floating-Point Dust in Engine:** Refactored `MatchingEngine` to compute partial fills in scaled integer micro-units (`remainingQuantityMicro`), eliminating floating-point imprecision.
+  - **Decimal String Serialization:** Preserved full precision across HTTP and WebSocket boundaries without floating-point artifacts. Added BigInt-safe serializer to WebSocket broadcasting.
+  - **Cancellation Ownership Verification:** Enforced user ownership verification on order cancellations (`owner_type` and `user_id`).
+  - **Comprehensive Verification:** **195 / 195 tests passing** across 9 test suites (50 original + 21 Step 1 + 6 migrations + 17 Step 2 + 18 Step 3 session + 16 Step 3 edge cases + 31 Step 4 simulator + 26 Step 5 precision/integration + 10 matchingEngine unit tests). TypeScript: 0 errors. Backend & Frontend production builds: 0 errors.
+
+- [ ] **Step 6: Comprehensive Verification & Regression Testing**
+
+
+
+

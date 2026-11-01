@@ -1,10 +1,14 @@
 import { Order, Trade, OrderBook, OrderBookLevel, OrderSide } from '../types/index.js';
 import { OrderModel } from '../models/orderModel.js';
 import { TradeModel } from '../models/tradeModel.js';
+import { MathPrecision } from '../utils/MathPrecision.js';
 import { logger } from '../utils/logger.js';
 import { randomUUID } from 'crypto';
 
 export class MatchingEngine {
+  // Canonical symbol this engine instance is responsible for
+  public readonly symbol: string;
+
   // In-Memory Order Books
   // Bids: Sorted descending by price (highest first), then ascending by createdAt (oldest first)
   private bids: Order[] = [];
@@ -12,7 +16,8 @@ export class MatchingEngine {
   // Asks: Sorted ascending by price (lowest first), then ascending by createdAt (oldest first)
   private asks: Order[] = [];
 
-  constructor() {
+  constructor(symbol: string = 'BYTE-USD') {
+    this.symbol = symbol === 'BYTE' ? 'BYTE-USD' : symbol;
     this.hydrateFromDatabase();
   }
 
@@ -20,8 +25,8 @@ export class MatchingEngine {
    * Hydrates the in-memory engine state from SQLite on server startup.
    */
   public hydrateFromDatabase(): void {
-    logger.info('Hydrating matching engine from persistent database...');
-    const activeOrders = OrderModel.getActiveOrders();
+    logger.info(`Hydrating matching engine for ${this.symbol} from persistent database...`);
+    const activeOrders = OrderModel.getActiveOrders(this.symbol);
 
     this.bids = [];
     this.asks = [];
@@ -36,9 +41,10 @@ export class MatchingEngine {
     }
 
     logger.info(
-      `Matching engine hydrated successfully. Active Bids: ${this.bids.length}, Active Asks: ${this.asks.length}`
+      `Matching engine [${this.symbol}] hydrated successfully. Active Bids: ${this.bids.length}, Active Asks: ${this.asks.length}`
     );
   }
+
 
   /**
    * Resets in-memory bids and asks orderbooks to empty state.
@@ -80,14 +86,28 @@ export class MatchingEngine {
         } else {
           incomingOrder.status = 'FILLED';
           incomingOrder.remainingQuantity = 0;
+          incomingOrder.remainingQuantityMicro = 0n;
         }
       } else {
         incomingOrder.status = 'FILLED';
+        incomingOrder.remainingQuantityMicro = 0n;
       }
     }
 
-    // Persist incoming order state update
-    OrderModel.update(incomingOrder);
+    // Persist incoming order state update and engine acceptance evidence atomically
+    try {
+      OrderModel.persistOrderAcceptance(incomingOrder);
+    } catch (err: any) {
+      logger.error(`[MatchingEngine] Failed to persist order acceptance for ${incomingOrder.id}:`, err);
+      // Remove incoming order and synchronize in-memory state with SQLite
+      if (incomingOrder.side === 'BUY') {
+        this.bids = this.bids.filter((b) => b.id !== incomingOrder.id);
+      } else {
+        this.asks = this.asks.filter((a) => a.id !== incomingOrder.id);
+      }
+      this.hydrateFromDatabase();
+      throw err;
+    }
 
     return { order: incomingOrder, trades: executedTrades };
   }
@@ -107,16 +127,24 @@ export class MatchingEngine {
         break; // No further compatible ask orders exist (since asks are sorted ascending)
       }
 
-      // Calculate fill quantity
-      const matchQuantity = Math.min(buyOrder.remainingQuantity, bestAsk.remainingQuantity);
+      // Calculate fill quantity using exact micro-units to prevent floating-point dust
+      const buyRemMicro = buyOrder.remainingQuantityMicro ?? MathPrecision.parseQtyToMicro(buyOrder.remainingQuantity);
+      const askRemMicro = bestAsk.remainingQuantityMicro ?? MathPrecision.parseQtyToMicro(bestAsk.remainingQuantity);
+      const matchMicro = buyRemMicro < askRemMicro ? buyRemMicro : askRemMicro;
+
+      const newBuyRemMicro = buyRemMicro - matchMicro;
+      const newAskRemMicro = askRemMicro - matchMicro;
+
+      buyOrder.remainingQuantityMicro = newBuyRemMicro;
+      bestAsk.remainingQuantityMicro = newAskRemMicro;
+      buyOrder.remainingQuantity = Number(MathPrecision.formatMicroToQty(newBuyRemMicro));
+      bestAsk.remainingQuantity = Number(MathPrecision.formatMicroToQty(newAskRemMicro));
+
+      const matchQuantity = Number(MathPrecision.formatMicroToQty(matchMicro));
       const executionPrice = bestAsk.price; // Trade executes at resting maker price
 
-      // Execute trade
-      buyOrder.remainingQuantity -= matchQuantity;
-      bestAsk.remainingQuantity -= matchQuantity;
-
-      buyOrder.status = buyOrder.remainingQuantity === 0 ? 'FILLED' : 'PARTIALLY_FILLED';
-      bestAsk.status = bestAsk.remainingQuantity === 0 ? 'FILLED' : 'PARTIALLY_FILLED';
+      buyOrder.status = newBuyRemMicro === 0n ? 'FILLED' : 'PARTIALLY_FILLED';
+      bestAsk.status = newAskRemMicro === 0n ? 'FILLED' : 'PARTIALLY_FILLED';
 
       // Persist bestAsk status change
       OrderModel.update(bestAsk);
@@ -129,6 +157,9 @@ export class MatchingEngine {
         price: executionPrice,
         quantity: matchQuantity,
         timestamp: new Date().toISOString(),
+        symbol: this.symbol,
+        priceBasis: MathPrecision.parsePriceToBasis(executionPrice),
+        quantityMicro: matchMicro,
       };
 
       TradeModel.create(trade);
@@ -162,16 +193,24 @@ export class MatchingEngine {
         break; // No further compatible bid orders exist (since bids are sorted descending)
       }
 
-      // Calculate fill quantity
-      const matchQuantity = Math.min(sellOrder.remainingQuantity, bestBid.remainingQuantity);
+      // Calculate fill quantity using exact micro-units to prevent floating-point dust
+      const sellRemMicro = sellOrder.remainingQuantityMicro ?? MathPrecision.parseQtyToMicro(sellOrder.remainingQuantity);
+      const bidRemMicro = bestBid.remainingQuantityMicro ?? MathPrecision.parseQtyToMicro(bestBid.remainingQuantity);
+      const matchMicro = sellRemMicro < bidRemMicro ? sellRemMicro : bidRemMicro;
+
+      const newSellRemMicro = sellRemMicro - matchMicro;
+      const newBidRemMicro = bidRemMicro - matchMicro;
+
+      sellOrder.remainingQuantityMicro = newSellRemMicro;
+      bestBid.remainingQuantityMicro = newBidRemMicro;
+      sellOrder.remainingQuantity = Number(MathPrecision.formatMicroToQty(newSellRemMicro));
+      bestBid.remainingQuantity = Number(MathPrecision.formatMicroToQty(newBidRemMicro));
+
+      const matchQuantity = Number(MathPrecision.formatMicroToQty(matchMicro));
       const executionPrice = sellOrder.type === 'MARKET' ? bestBid.price : sellOrder.price; // Trade executes at SELL order price per assignment spec
 
-      // Execute trade
-      sellOrder.remainingQuantity -= matchQuantity;
-      bestBid.remainingQuantity -= matchQuantity;
-
-      sellOrder.status = sellOrder.remainingQuantity === 0 ? 'FILLED' : 'PARTIALLY_FILLED';
-      bestBid.status = bestBid.remainingQuantity === 0 ? 'FILLED' : 'PARTIALLY_FILLED';
+      sellOrder.status = newSellRemMicro === 0n ? 'FILLED' : 'PARTIALLY_FILLED';
+      bestBid.status = newBidRemMicro === 0n ? 'FILLED' : 'PARTIALLY_FILLED';
 
       // Persist bestBid status change
       OrderModel.update(bestBid);
@@ -184,6 +223,9 @@ export class MatchingEngine {
         price: executionPrice,
         quantity: matchQuantity,
         timestamp: new Date().toISOString(),
+        symbol: this.symbol,
+        priceBasis: MathPrecision.parsePriceToBasis(executionPrice),
+        quantityMicro: matchMicro,
       };
 
       TradeModel.create(trade);
@@ -206,19 +248,18 @@ export class MatchingEngine {
    * Cancels an open order from the in-memory book.
    */
   public cancelOrder(orderId: string): boolean {
-    const bidIndex = this.bids.findIndex((o) => o.id === orderId);
-    if (bidIndex !== -1) {
+    let removed = false;
+    let bidIndex: number;
+    while ((bidIndex = this.bids.findIndex((o) => o.id === orderId)) !== -1) {
       this.bids.splice(bidIndex, 1);
-      return true;
+      removed = true;
     }
-
-    const askIndex = this.asks.findIndex((o) => o.id === orderId);
-    if (askIndex !== -1) {
+    let askIndex: number;
+    while ((askIndex = this.asks.findIndex((o) => o.id === orderId)) !== -1) {
       this.asks.splice(askIndex, 1);
-      return true;
+      removed = true;
     }
-
-    return false;
+    return removed;
   }
 
   /**
@@ -259,10 +300,20 @@ export class MatchingEngine {
   }
 
   /**
+   * Alias for getOrderBookSnapshot
+   */
+  public getOrderBook(): OrderBook {
+    return this.getOrderBookSnapshot();
+  }
+
+  /**
    * Helper: Inserts a BUY order into bids array upholding Price-Time Priority.
    * Highest Price first; if same price, oldest createdAt first.
    */
   private insertBid(order: Order): void {
+    if (this.bids.some((b) => b.id === order.id)) {
+      return;
+    }
     let inserted = false;
     for (let i = 0; i < this.bids.length; i++) {
       if (
@@ -285,6 +336,9 @@ export class MatchingEngine {
    * Lowest Price first; if same price, oldest createdAt first.
    */
   private insertAsk(order: Order): void {
+    if (this.asks.some((a) => a.id === order.id)) {
+      return;
+    }
     let inserted = false;
     for (let i = 0; i < this.asks.length; i++) {
       if (

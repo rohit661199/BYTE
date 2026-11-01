@@ -1,9 +1,12 @@
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
+import path from 'path';
 import { config } from './config/env.js';
 import { logger } from './utils/logger.js';
-import { initDatabase, pgPool } from './database/db.js';
+import { initDatabase, pgPool, db } from './database/db.js';
+import { MarketSessionManager } from './services/MarketSessionManager.js';
+import { EngineManager } from './matching-engine/EngineManager.js';
 import apiRouter from './routes/apiRouter.js';
 import { errorHandler } from './middlewares/errorHandler.js';
 import { WebSocketService } from './services/websocketService.js';
@@ -11,10 +14,20 @@ import { WebSocketService } from './services/websocketService.js';
 const app = express();
 const server = http.createServer(app);
 
-// Initialize Database Schema
+// 1. Initialize Database Schema & Migrations
 initDatabase();
 
-// Initialize WebSocket Broadcaster
+// 2. Durable Crash Recovery: Reconcile any interrupted AMOs BEFORE engine hydration
+try {
+  await MarketSessionManager.reconcileDispatchedAmos();
+} catch (recErr) {
+  logger.error('Failed to reconcile interrupted AMOs during startup:', recErr);
+}
+
+// 3. Hydrate all matching engines from reconciled database state
+EngineManager.getInstance().hydrateAll();
+
+// 4. Initialize WebSocket Broadcaster
 WebSocketService.initialize(server);
 
 // Production CORS & Middleware
@@ -48,11 +61,13 @@ app.get('/', (_req, res) => {
 // Healthcheck Endpoint with Connection Diagnostics
 app.get('/health', async (_req, res) => {
   try {
-    let dbStatus = 'sqlite_or_memory';
+    let dbStatus = 'in_memory';
     if (pgPool) {
       const client = await pgPool.connect();
       client.release();
       dbStatus = 'postgres_connected';
+    } else if (db && db.memory === false && db.name) {
+      dbStatus = `sqlite_persistent: ${path.basename(db.name)}`;
     }
     res.json({
       status: 'ok',
@@ -64,6 +79,9 @@ app.get('/health', async (_req, res) => {
   }
 });
 
+import { AmoScheduler } from './services/AmoScheduler.js';
+import { LiquiditySimulator } from './services/LiquiditySimulator.js';
+
 // Centralized Error Handling Middleware
 app.use(errorHandler);
 
@@ -71,12 +89,16 @@ app.use(errorHandler);
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   server.listen(config.port, () => {
     logger.info(`ByteExchange Production Server & WebSockets running on port ${config.port}`);
+    AmoScheduler.start();
+    LiquiditySimulator.start();
   });
 }
 
 // Production Graceful Shutdown Handlers
 const handleShutdown = async (signal: string) => {
   logger.info(`Received ${signal}. Shutting down gracefully...`);
+  AmoScheduler.stop();
+  LiquiditySimulator.stop();
   server.close(async () => {
     logger.info('HTTP & WebSocket server closed.');
     if (pgPool) {

@@ -46,7 +46,9 @@ export class WebSocketService {
       timestamp: new Date().toISOString(),
     };
 
-    const serialized = JSON.stringify(message);
+    const serialized = JSON.stringify(message, (_key, value) =>
+      typeof value === 'bigint' ? value.toString() : value
+    );
 
     this.wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
@@ -81,7 +83,10 @@ export class WebSocketService {
     };
 
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(snapshotMessage));
+      const serialized = JSON.stringify(snapshotMessage, (_key, value) =>
+        typeof value === 'bigint' ? value.toString() : value
+      );
+      ws.send(serialized);
     }
   }
 }

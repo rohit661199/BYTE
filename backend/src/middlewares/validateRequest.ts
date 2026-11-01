@@ -3,18 +3,30 @@ import { z, ZodSchema } from 'zod';
 
 export const createOrderSchema = z
   .object({
+    symbol: z.string().optional(),
     side: z.enum(['BUY', 'SELL'], {
       required_error: 'Order side is required and must be BUY or SELL',
     }),
     type: z.enum(['LIMIT', 'MARKET']).optional().default('LIMIT'),
-    price: z.number().optional().default(0),
-    quantity: z
-      .number({ required_error: 'Quantity is required' })
-      .positive('Quantity must be greater than 0'),
+    price: z.union([z.number(), z.string()]).optional().default(0),
+    quantity: z.union(
+      [
+        z.number().positive('Quantity must be greater than 0'),
+        z.string().refine((val) => {
+          const num = parseFloat(val);
+          return !isNaN(num) && num > 0;
+        }, 'Quantity must be greater than 0'),
+      ],
+      {
+        required_error: 'Quantity is required',
+      }
+    ),
+    userId: z.string().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.type === 'LIMIT') {
-      if (data.price === undefined || data.price <= 0) {
+      const p = typeof data.price === 'string' ? parseFloat(data.price) : data.price;
+      if (p === undefined || isNaN(p) || p <= 0) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['price'],
