@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
+import { MarketDataProvider } from './context/MarketDataContext';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { PublicLayout } from './components/layout/PublicLayout';
 import { AppLayout } from './components/layout/AppLayout';
@@ -20,9 +21,10 @@ import { SettingsPage } from './pages/SettingsPage';
 export default function App() {
   return (
     <ThemeProvider>
-      <ErrorBoundary>
-        <BrowserRouter>
-          <Routes>
+      <MarketDataProvider>
+        <ErrorBoundary>
+          <BrowserRouter>
+            <Routes>
             {/* Public Marketing & Documentation Layout */}
             <Route element={<PublicLayout />}>
               <Route path="/" element={<LandingPage />} />
@@ -52,6 +54,8 @@ export default function App() {
           </Routes>
         </BrowserRouter>
       </ErrorBoundary>
-    </ThemeProvider>
-  );
+    </MarketDataProvider>
+  </ThemeProvider>
+);
 }
+

@@ -53,8 +53,9 @@ class PostgresAdapter {
 import { migration001 } from './migrations/001_base_tables.js';
 import { migration002, needsStatusCheckUpgrade } from './migrations/002_multi_asset_amo.js';
 import { migration003 } from './migrations/003_precision_shadow_columns.js';
+import { migration004 } from './migrations/004_market_candles_cache.js';
 
-export const MIGRATIONS = [migration001, migration002, migration003];
+export const MIGRATIONS = [migration001, migration002, migration003, migration004];
 
 
 class MemoryDB {
@@ -62,6 +63,7 @@ class MemoryDB {
   private tradesList: any[] = [];
   private migrationsMap = new Map<number, any>();
   private amoDispatchMap = new Map<string, any>();
+  private candlesList: any[] = [];
 
   pragma(_str: string) { }
   exec(_sql: string) { }
@@ -176,6 +178,25 @@ class MemoryDB {
           } else {
             this.amoDispatchMap.clear();
           }
+        } else if (s.startsWith('INSERT OR REPLACE INTO market_candles') || s.startsWith('INSERT INTO market_candles')) {
+          const [symbol, interval, timestamp, open, high, low, close, volume, source] = params;
+          const idx = this.candlesList.findIndex(c => c.symbol === symbol && c.interval === interval && c.timestamp === timestamp);
+          const candleObj = { symbol, interval, timestamp, open, high, low, close, volume: volume || 0, source };
+          if (idx >= 0) {
+            this.candlesList[idx] = candleObj;
+          } else {
+            this.candlesList.push(candleObj);
+          }
+        } else if (s.startsWith('DELETE FROM market_candles')) {
+          if (s.includes('WHERE symbol = ? AND interval = ?')) {
+            const [sym, intv] = params;
+            this.candlesList = this.candlesList.filter(c => !(c.symbol === sym && c.interval === intv));
+          } else if (s.includes('WHERE symbol = ?')) {
+            const [sym] = params;
+            this.candlesList = this.candlesList.filter(c => c.symbol !== sym);
+          } else {
+            this.candlesList.length = 0;
+          }
         }
         return { changes: 1 };
       },
@@ -186,6 +207,16 @@ class MemoryDB {
           return this.amoDispatchMap.get(params[0]) || null;
         } else if (s.includes('FROM orders WHERE id =')) {
           return this.ordersMap.get(params[0]) || null;
+        } else if (s.includes('FROM market_candles')) {
+          const symbol = params[0];
+          const interval = params[1];
+          const matching = this.candlesList.filter(c => c.symbol === symbol && (!interval || c.interval === interval));
+          if (s.includes('COUNT(')) {
+            return { count: matching.length, 'COUNT(*)': matching.length };
+          }
+          if (matching.length === 0) return null;
+          matching.sort((a, b) => b.timestamp - a.timestamp);
+          return matching[0];
         } else if (s.includes('totalBuy')) {
           let totalBuy = 0, totalSell = 0;
           for (const o of this.ordersMap.values()) {
@@ -213,6 +244,15 @@ class MemoryDB {
             { name: 'id' }, { name: 'buy_order_id' }, { name: 'sell_order_id' },
             { name: 'price' }, { name: 'quantity' }, { name: 'timestamp' }, { name: 'symbol' }
           ];
+        } else if (s.includes('FROM market_candles')) {
+          const symbol = params[0];
+          const interval = params[1];
+          let results = this.candlesList.filter((c) => c.symbol === symbol && c.interval === interval);
+          results.sort((a, b) => a.timestamp - b.timestamp);
+          if (params.length >= 3 && typeof params[2] === 'number') {
+            results = results.slice(0, params[2]);
+          }
+          return results;
         } else if (s.includes("status IN ('PENDING', 'PARTIALLY_FILLED')") || s.includes("o.status IN ('PENDING', 'PARTIALLY_FILLED')")) {
           const symParam = params[0];
           return Array.from(this.ordersMap.values())

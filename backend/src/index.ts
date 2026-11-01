@@ -81,16 +81,25 @@ app.get('/health', async (_req, res) => {
 
 import { AmoScheduler } from './services/AmoScheduler.js';
 import { LiquiditySimulator } from './services/LiquiditySimulator.js';
+import { MarketDataStreamingService } from './services/market-data/MarketDataStreamingService.js';
 
 // Centralized Error Handling Middleware
 app.use(errorHandler);
 
 // Launch Continuous Server Process (Render / Railway / Docker / Local)
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
-  server.listen(config.port, () => {
+  server.listen(config.port, async () => {
     logger.info(`ByteExchange Production Server & WebSockets running on port ${config.port}`);
     AmoScheduler.start();
     LiquiditySimulator.start();
+
+    // Start market data streaming (provider failures are isolated and non-fatal)
+    try {
+      const streamingService = MarketDataStreamingService.getInstance();
+      await streamingService.start();
+    } catch (err) {
+      logger.warn('MarketDataStreamingService failed to start. Market data will be unavailable:', err);
+    }
   });
 }
 
@@ -99,6 +108,13 @@ const handleShutdown = async (signal: string) => {
   logger.info(`Received ${signal}. Shutting down gracefully...`);
   AmoScheduler.stop();
   LiquiditySimulator.stop();
+
+  try {
+    const streamingService = MarketDataStreamingService.getInstance();
+    await streamingService.stop();
+  } catch (_) {
+    // Best-effort streaming shutdown
+  }
   server.close(async () => {
     logger.info('HTTP & WebSocket server closed.');
     if (pgPool) {

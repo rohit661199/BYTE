@@ -1,25 +1,35 @@
 import React, { useState } from 'react';
 import { Search, TrendingUp, TrendingDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useMarketData } from '../../context/MarketDataContext';
+import { formatPrice, formatChange, getStatusBadgeConfig } from '../../utils/formatters';
 
-interface WatchlistInstrument {
-  symbol: string;
-  name: string;
-  price: string;
-  change: string;
-  isPositive: boolean;
-}
-
-const INSTRUMENTS: WatchlistInstrument[] = [
-  { symbol: 'BTC-USD', name: 'Bitcoin', price: '88,532.41', change: '+1.42%', isPositive: true },
-  { symbol: 'BYTE-USD', name: 'Byte Token (FIFO)', price: '100.00', change: '+0.00%', isPositive: true },
-  { symbol: 'ETH-USD', name: 'Ethereum', price: '3,240.50', change: '+1.18%', isPositive: true },
-  { symbol: 'SOL-USD', name: 'Solana', price: '184.20', change: '+3.92%', isPositive: true },
-  { symbol: 'NVDA-USD', name: 'NVIDIA Corp', price: '135.50', change: '+1.64%', isPositive: true },
-  { symbol: 'AAPL-USD', name: 'Apple Inc', price: '228.10', change: '-0.42%', isPositive: false },
-  { symbol: 'TSLA-USD', name: 'Tesla Inc', price: '260.80', change: '+4.12%', isPositive: true },
-  { symbol: 'MSFT-USD', name: 'Microsoft', price: '416.20', change: '+0.65%', isPositive: true },
-];
+const INSTRUMENT_NAMES: Record<string, string> = {
+  'BYTE-USD': 'Byte FIFO Engine',
+  'BTC-USD': 'Bitcoin',
+  'ETH-USD': 'Ethereum',
+  'SOL-USD': 'Solana',
+  'AAPL': 'Apple Inc',
+  'MSFT': 'Microsoft Corp',
+  'NVDA': 'NVIDIA Corp',
+  'TSLA': 'Tesla Inc',
+  'AMZN': 'Amazon.com Inc',
+  'RELIANCE': 'Reliance Industries',
+  'TCS': 'Tata Consultancy',
+  'HDFCBANK': 'HDFC Bank',
+  'INFY': 'Infosys Ltd',
+  'ICICIBANK': 'ICICI Bank',
+  'SBIN': 'State Bank of India',
+  'BHARTIARTL': 'Bharti Airtel',
+  'ITC': 'ITC Ltd',
+  'LT': 'Larsen & Toubro',
+  'WIPRO': 'Wipro Ltd',
+  'AXISBANK': 'Axis Bank',
+  'BAJFINANCE': 'Bajaj Finance',
+  'MARUTI': 'Maruti Suzuki',
+  'HINDUNILVR': 'Hindustan Unilever',
+  'TATAMOTORS': 'Tata Motors',
+};
 
 interface TradingWatchlistProps {
   currentSymbol: string;
@@ -28,12 +38,16 @@ interface TradingWatchlistProps {
 export const TradingWatchlist: React.FC<TradingWatchlistProps> = ({ currentSymbol }) => {
   const [search, setSearch] = useState('');
   const navigate = useNavigate();
+  const { quotesList } = useMarketData();
 
-  const filtered = INSTRUMENTS.filter(
-    (i) =>
-      i.symbol.toLowerCase().includes(search.toLowerCase()) ||
-      i.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const cleanCurrent = (currentSymbol || 'BYTE-USD').trim().toUpperCase();
+
+  const filtered = quotesList.filter((item) => {
+    const sym = item.symbol.toLowerCase();
+    const name = (INSTRUMENT_NAMES[item.symbol] || '').toLowerCase();
+    const q = search.toLowerCase();
+    return sym.includes(q) || name.includes(q);
+  });
 
   return (
     <div className="bg-byte-surface border border-byte-border rounded-lg flex flex-col h-[520px] select-none text-xs font-mono">
@@ -41,13 +55,13 @@ export const TradingWatchlist: React.FC<TradingWatchlistProps> = ({ currentSymbo
       <div className="p-2.5 border-b border-byte-border space-y-2">
         <div className="flex items-center justify-between text-byte-muted text-[11px] font-semibold uppercase tracking-wider">
           <span>Watchlist</span>
-          <span>8 Assets</span>
+          <span>{filtered.length} Assets</span>
         </div>
         <div className="relative">
           <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-byte-muted pointer-events-none" />
           <input
             type="text"
-            placeholder="Search..."
+            placeholder="Search symbol or name..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-byte-secondary border border-byte-border rounded pl-7 pr-2 py-1 text-xs text-byte-primary placeholder:text-byte-muted/60 focus:outline-none focus:border-byte-accent font-mono"
@@ -62,10 +76,15 @@ export const TradingWatchlist: React.FC<TradingWatchlistProps> = ({ currentSymbo
         <span>24h%</span>
       </div>
 
-      {/* Scrollable Rows */}
+      {/* Scrollable Dynamic Rows */}
       <div className="flex-1 overflow-y-auto divide-y divide-byte-border/40">
         {filtered.map((item) => {
-          const isSelected = item.symbol.toLowerCase() === (currentSymbol || '').toLowerCase();
+          const isSelected = item.symbol.toUpperCase() === cleanCurrent;
+          const { percentText, isPositive } = formatChange(item.change, item.changePercent);
+          const priceDisplay = formatPrice(item.price, item.currency);
+          const statusConfig = getStatusBadgeConfig(item.status);
+          const companyName = INSTRUMENT_NAMES[item.symbol] || item.exchange;
+
           return (
             <button
               key={item.symbol}
@@ -77,21 +96,28 @@ export const TradingWatchlist: React.FC<TradingWatchlistProps> = ({ currentSymbo
               }`}
             >
               <div className="leading-tight">
-                <span className="text-byte-primary block font-semibold text-[11px]">{item.symbol.replace('-USD', '')}</span>
-                <span className="text-[9px] text-byte-muted block">{item.name.slice(0, 10)}</span>
+                <div className="flex items-center space-x-1">
+                  <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`} />
+                  <span className="text-byte-primary block font-semibold text-[11px]">
+                    {item.symbol.replace('-USD', '')}
+                  </span>
+                </div>
+                <span className="text-[9px] text-byte-muted block truncate max-w-[85px]">
+                  {companyName}
+                </span>
               </div>
-              <span className="text-byte-primary tnum text-[11px]">{item.price}</span>
+              <span className="text-byte-primary tnum text-[11px]">{priceDisplay}</span>
               <span
                 className={`inline-flex items-center px-1 rounded text-[10px] font-semibold tnum ${
-                  item.isPositive ? 'text-[#22B982]' : 'text-[#EF6262]'
+                  isPositive ? 'text-[#22B982]' : 'text-[#EF6262]'
                 }`}
               >
-                {item.isPositive ? (
+                {isPositive ? (
                   <TrendingUp className="w-2.5 h-2.5 mr-0.5" />
                 ) : (
                   <TrendingDown className="w-2.5 h-2.5 mr-0.5" />
                 )}
-                {item.change}
+                {percentText}
               </span>
             </button>
           );

@@ -1,33 +1,62 @@
 import React, { useState } from 'react';
-import { ChevronDown, TrendingUp, TrendingDown, Activity } from 'lucide-react';
+import { ChevronDown, TrendingUp, TrendingDown, Activity, ShieldAlert } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useMarketData } from '../../context/MarketDataContext';
+import { formatPrice, formatChange, formatVolume, getStatusBadgeConfig } from '../../utils/formatters';
 
 interface TradingHeaderProps {
   currentSymbol?: string;
 }
 
-const AVAILABLE_PAIRS = [
-  { symbol: 'BTC-USD', display: 'BTC/USD', name: 'Bitcoin', price: '88,532.41', change: '+1,235.42 (+1.42%)', high: '89,210.40', low: '86,120.00', vol: '12.4K BTC', isPositive: true },
-  { symbol: 'BYTE-USD', display: 'BYTE/USD', name: 'Byte Utility Token (FIFO Engine)', price: '100.00', change: '+0.00 (+0.00%)', high: '105.00', low: '95.00', vol: '3,450 BYTE', isPositive: true },
-  { symbol: 'ETH-USD', display: 'ETH/USD', name: 'Ethereum', price: '3,240.50', change: '+37.80 (+1.18%)', high: '3,290.00', low: '3,180.00', vol: '19.4K ETH', isPositive: true },
-  { symbol: 'SOL-USD', display: 'SOL/USD', name: 'Solana', price: '184.20', change: '+6.90 (+3.92%)', high: '189.50', low: '176.00', vol: '48.2K SOL', isPositive: true },
-  { symbol: 'NVDA-USD', display: 'NVDA/USD', name: 'NVIDIA Corp', price: '135.50', change: '+2.18 (+1.64%)', high: '138.00', low: '133.20', vol: '42.8M SHARES', isPositive: true },
-  { symbol: 'AAPL-USD', display: 'AAPL/USD', name: 'Apple Inc', price: '228.10', change: '-0.96 (-0.42%)', high: '230.50', low: '226.40', vol: '28.1M SHARES', isPositive: false },
-  { symbol: 'TSLA-USD', display: 'TSLA/USD', name: 'Tesla Inc', price: '260.80', change: '+10.32 (+4.12%)', high: '266.00', low: '252.00', vol: '35.9M SHARES', isPositive: true },
-];
+const INSTRUMENT_NAMES: Record<string, string> = {
+  'BYTE-USD': 'Byte Utility Token (FIFO)',
+  'BTC-USD': 'Bitcoin',
+  'ETH-USD': 'Ethereum',
+  'SOL-USD': 'Solana',
+  'AAPL': 'Apple Inc',
+  'MSFT': 'Microsoft Corp',
+  'NVDA': 'NVIDIA Corp',
+  'TSLA': 'Tesla Inc',
+  'AMZN': 'Amazon.com Inc',
+  'RELIANCE': 'Reliance Industries Ltd',
+  'TCS': 'Tata Consultancy Services',
+  'HDFCBANK': 'HDFC Bank Ltd',
+  'INFY': 'Infosys Ltd',
+  'ICICIBANK': 'ICICI Bank Ltd',
+  'SBIN': 'State Bank of India',
+  'BHARTIARTL': 'Bharti Airtel Ltd',
+  'ITC': 'ITC Ltd',
+  'LT': 'Larsen & Toubro Ltd',
+  'WIPRO': 'Wipro Ltd',
+  'AXISBANK': 'Axis Bank Ltd',
+  'BAJFINANCE': 'Bajaj Finance Ltd',
+  'MARUTI': 'Maruti Suzuki India',
+  'HINDUNILVR': 'Hindustan Unilever Ltd',
+  'TATAMOTORS': 'Tata Motors Ltd',
+};
 
 export const TradingHeader: React.FC<TradingHeaderProps> = ({ currentSymbol = 'BYTE-USD' }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const navigate = useNavigate();
+  const { getQuote, quotesList } = useMarketData();
 
-  const safeSymbol = (currentSymbol || 'BYTE-USD').toLowerCase();
-  const selectedPair =
-    AVAILABLE_PAIRS.find((p) => p.symbol.toLowerCase() === safeSymbol) ||
-    AVAILABLE_PAIRS[1]; // BYTE-USD default
+  const cleanSymbol = (currentSymbol || 'BYTE-USD').trim().toUpperCase();
+  const quote = getQuote(cleanSymbol);
+
+  const currency = quote?.currency || (cleanSymbol.includes('-') || !['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'SBIN', 'BHARTIARTL', 'ITC', 'LT', 'WIPRO', 'AXISBANK', 'BAJFINANCE', 'MARUTI', 'HINDUNILVR', 'TATAMOTORS'].includes(cleanSymbol) ? 'USD' : 'INR');
+  const priceDisplay = formatPrice(quote?.price, currency);
+  const highDisplay = formatPrice(quote?.high, currency);
+  const lowDisplay = formatPrice(quote?.low, currency);
+  const volDisplay = formatVolume(quote?.volume, currency);
+  const { text: changeText, isPositive } = formatChange(quote?.change, quote?.changePercent);
+
+  const statusConfig = getStatusBadgeConfig(quote?.status);
+  const displayName = INSTRUMENT_NAMES[cleanSymbol] || cleanSymbol;
+  const isNSE = quote?.exchange === 'NSE' || currency === 'INR';
 
   return (
     <div className="bg-byte-surface border border-byte-border rounded-lg p-3 flex flex-wrap items-center justify-between gap-4 select-none transition-colors">
-      {/* Left: Instrument Selector & Last Price */}
+      {/* Left: Instrument Selector & Dynamic Market Price */}
       <div className="flex items-center space-x-4">
         {/* Pair Dropdown */}
         <div className="relative">
@@ -41,44 +70,62 @@ export const TradingHeader: React.FC<TradingHeaderProps> = ({ currentSymbol = 'B
               </svg>
             </div>
             <div className="text-left font-mono">
-              <span className="font-bold text-sm text-byte-primary block leading-none">{selectedPair.display}</span>
-              <span className="text-[10px] text-byte-muted">{selectedPair.name.slice(0, 16)}</span>
+              <span className="font-bold text-sm text-byte-primary block leading-none">
+                {cleanSymbol.includes('-') ? cleanSymbol.replace('-', '/') : cleanSymbol}
+              </span>
+              <span className="text-[10px] text-byte-muted">{displayName.slice(0, 16)}</span>
             </div>
             <ChevronDown className="w-3.5 h-3.5 text-byte-muted group-hover:text-byte-primary transition-colors" />
           </button>
 
-          {/* Dropdown Menu */}
+          {/* Dropdown Menu with Live Quotes */}
           {dropdownOpen && (
-            <div className="absolute left-0 top-full mt-1.5 w-64 bg-byte-surface border border-byte-border rounded-md shadow-xl p-1 z-50">
-              <div className="text-[10px] uppercase font-mono font-semibold text-byte-muted px-2.5 py-1 border-b border-byte-border">
-                Select Pair
+            <div className="absolute left-0 top-full mt-1.5 w-72 bg-byte-surface border border-byte-border rounded-md shadow-xl p-1 z-50">
+              <div className="text-[10px] uppercase font-mono font-semibold text-byte-muted px-2.5 py-1 border-b border-byte-border flex justify-between">
+                <span>Select Instrument</span>
+                <span>24 Assets</span>
               </div>
-              <div className="max-h-60 overflow-y-auto space-y-0.5 mt-1 font-mono text-xs">
-                {AVAILABLE_PAIRS.map((pair) => (
-                  <button
-                    key={pair.symbol}
-                    onClick={() => {
-                      setDropdownOpen(false);
-                      navigate(`/trade/${pair.symbol}`);
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded text-left transition-colors cursor-pointer ${
-                      pair.symbol === selectedPair.symbol
-                        ? 'bg-byte-secondary text-byte-primary font-bold'
-                        : 'hover:bg-byte-secondary text-byte-muted hover:text-byte-primary'
-                    }`}
-                  >
-                    <div>
-                      <span className="font-semibold block">{pair.display}</span>
-                      <span className="text-[10px] text-byte-muted block">{pair.name.slice(0, 14)}</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="block text-byte-primary">{pair.price}</span>
-                      <span className={`text-[10px] ${pair.isPositive ? 'text-[#22B982]' : 'text-[#EF6262]'}`}>
-                        {pair.change.split(' ')[1] || pair.change}
-                      </span>
-                    </div>
-                  </button>
-                ))}
+              <div className="max-h-72 overflow-y-auto space-y-0.5 mt-1 font-mono text-xs divide-y divide-byte-border/20">
+                {quotesList.map((item) => {
+                  const itemChange = formatChange(item.change, item.changePercent);
+                  const itemPrice = formatPrice(item.price, item.currency);
+                  const isSelected = item.symbol.toUpperCase() === cleanSymbol;
+                  const itemStatus = getStatusBadgeConfig(item.status);
+
+                  return (
+                    <button
+                      key={item.symbol}
+                      onClick={() => {
+                        setDropdownOpen(false);
+                        navigate(`/trade/${item.symbol}`);
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded text-left transition-colors cursor-pointer ${
+                        isSelected
+                          ? 'bg-byte-secondary text-byte-primary font-bold'
+                          : 'hover:bg-byte-secondary text-byte-muted hover:text-byte-primary'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center space-x-1.5">
+                          <span className={`w-1.5 h-1.5 rounded-full ${itemStatus.dot}`} />
+                          <span className="font-semibold">{item.symbol.replace('-USD', '')}</span>
+                          <span className="text-[9px] text-byte-tertiary px-1 rounded bg-byte-bg border border-byte-border/40">
+                            {item.exchange}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-byte-muted block truncate max-w-[120px]">
+                          {INSTRUMENT_NAMES[item.symbol] || item.symbol}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="block text-byte-primary tnum">{itemPrice}</span>
+                        <span className={`text-[10px] tnum ${itemChange.isPositive ? 'text-[#22B982]' : 'text-[#EF6262]'}`}>
+                          {itemChange.percentText}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -87,43 +134,68 @@ export const TradingHeader: React.FC<TradingHeaderProps> = ({ currentSymbol = 'B
         {/* Big Price & Change Pill */}
         <div className="flex items-baseline space-x-2 font-mono">
           <span className="text-xl sm:text-2xl font-bold text-byte-primary tnum tracking-tight">
-            ${selectedPair.price}
+            {priceDisplay}
           </span>
           <span
             className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold tnum ${
-              selectedPair.isPositive ? 'text-[#22B982] bg-[#22B982]/10' : 'text-[#EF6262] bg-[#EF6262]/10'
+              isPositive ? 'text-[#22B982] bg-[#22B982]/10' : 'text-[#EF6262] bg-[#EF6262]/10'
             }`}
           >
-            {selectedPair.isPositive ? (
+            {isPositive ? (
               <TrendingUp className="w-3 h-3 mr-1" />
             ) : (
               <TrendingDown className="w-3 h-3 mr-1" />
             )}
-            {selectedPair.change}
+            {changeText}
           </span>
+        </div>
+
+        {/* Live / Delayed / Stale / Preview Badge */}
+        <div
+          className={`hidden md:inline-flex items-center space-x-1.5 px-2 py-0.5 rounded text-[11px] font-mono border ${statusConfig.bg} ${statusConfig.text} ${statusConfig.border}`}
+          title={statusConfig.description}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`} />
+          <span className="font-semibold uppercase tracking-wider">{statusConfig.label}</span>
+          <span className="text-[9px] text-byte-muted ml-0.5">({quote?.source || 'FEED'})</span>
         </div>
       </div>
 
-      {/* Right: 24h High, Low, Volume, and Status matching reference image */}
-      <div className="flex items-center space-x-6 font-mono text-xs">
+      {/* Right: High, Low, Volume, Regulatory Badge & Engine Status */}
+      <div className="flex items-center space-x-5 font-mono text-xs">
         <div className="hidden sm:block">
           <span className="text-[10px] text-byte-muted uppercase block">24h High</span>
-          <span className="text-byte-primary tnum font-semibold">${selectedPair.high}</span>
+          <span className="text-byte-primary tnum font-semibold">{highDisplay}</span>
         </div>
 
         <div className="hidden sm:block">
           <span className="text-[10px] text-byte-muted uppercase block">24h Low</span>
-          <span className="text-byte-primary tnum font-semibold">${selectedPair.low}</span>
+          <span className="text-byte-primary tnum font-semibold">{lowDisplay}</span>
         </div>
 
         <div className="hidden md:block">
           <span className="text-[10px] text-byte-muted uppercase block">24h Volume</span>
-          <span className="text-byte-primary tnum font-semibold">{selectedPair.vol}</span>
+          <span className="text-byte-primary tnum font-semibold">{volDisplay}</span>
         </div>
 
-        <div className="hidden lg:flex items-center space-x-1.5 px-2 py-1 rounded bg-byte-secondary text-[11px] text-byte-accent border border-byte-border">
-          <Activity className="w-3 h-3" />
-          <span>FIFO In-Memory</span>
+        {/* Upstox Regulatory Notice Pill if NSE */}
+        {isNSE && (
+          <div
+            className="hidden xl:flex items-center space-x-1 px-2 py-1 rounded bg-blue-500/10 text-blue-400 border border-blue-500/30 text-[10px]"
+            title={quote?.regulatoryNotice || 'NSE Reference Data · Private Non-Redistributable Feed'}
+          >
+            <ShieldAlert className="w-3 h-3 text-blue-400" />
+            <span>NSE Reference Feed</span>
+          </div>
+        )}
+
+        {/* BYTE Simulated Engine Status (Strict Separation from External Reference Feeds) */}
+        <div
+          className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-byte-secondary text-[11px] text-byte-accent border border-byte-border"
+          title="BYTE Order Matching operates strictly in-memory FIFO. Reference market prices do not affect simulated matching."
+        >
+          <Activity className="w-3.5 h-3.5 text-bull" />
+          <span className="font-medium">FIFO Matching Engine</span>
         </div>
       </div>
     </div>

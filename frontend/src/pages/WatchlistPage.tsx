@@ -4,36 +4,58 @@ import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
+import { useMarketData } from '../context/MarketDataContext';
+import { formatPrice, formatChange, getStatusBadgeConfig } from '../utils/formatters';
 
-interface WatchlistItem {
-  symbol: string;
-  name: string;
-  price: string;
-  change: string;
-  sparkline: number[];
-  isPositive: boolean;
-}
+const INSTRUMENT_NAMES: Record<string, string> = {
+  'BYTE-USD': 'Byte Utility Token',
+  'BTC-USD': 'Bitcoin',
+  'ETH-USD': 'Ethereum',
+  'SOL-USD': 'Solana',
+  'AAPL': 'Apple Inc',
+  'MSFT': 'Microsoft Corp',
+  'NVDA': 'NVIDIA Corp',
+  'TSLA': 'Tesla Inc',
+  'AMZN': 'Amazon.com Inc',
+  'RELIANCE': 'Reliance Industries',
+  'TCS': 'Tata Consultancy Services',
+  'HDFCBANK': 'HDFC Bank Ltd',
+  'INFY': 'Infosys Ltd',
+  'ICICIBANK': 'ICICI Bank Ltd',
+  'SBIN': 'State Bank of India',
+  'BHARTIARTL': 'Bharti Airtel Ltd',
+  'ITC': 'ITC Ltd',
+  'LT': 'Larsen & Toubro Ltd',
+  'WIPRO': 'Wipro Ltd',
+  'AXISBANK': 'Axis Bank Ltd',
+  'BAJFINANCE': 'Bajaj Finance Ltd',
+  'MARUTI': 'Maruti Suzuki Ltd',
+  'HINDUNILVR': 'Hindustan Unilever',
+  'TATAMOTORS': 'Tata Motors Ltd',
+};
 
-const DEFAULT_WATCHLIST: WatchlistItem[] = [
-  { symbol: 'BTC-USD', name: 'Bitcoin', price: '$88,532.41', change: '+1.42%', sparkline: [40, 42, 41, 44, 46, 45, 48, 50], isPositive: true },
-  { symbol: 'BYTE-USD', name: 'Byte Utility Token', price: '$100.00', change: '+0.00%', sparkline: [50, 50, 50, 50, 50, 50, 50, 50], isPositive: true },
-  { symbol: 'ETH-USD', name: 'Ethereum', price: '$3,240.50', change: '+1.18%', sparkline: [30, 31, 29, 32, 34, 33, 35, 36], isPositive: true },
-  { symbol: 'SOL-USD', name: 'Solana', price: '$184.20', change: '+3.92%', sparkline: [20, 22, 21, 25, 27, 26, 29, 31], isPositive: true },
-  { symbol: 'NVDA-USD', name: 'NVIDIA Corp', price: '$135.50', change: '+1.64%', sparkline: [55, 54, 56, 58, 57, 59, 61, 62], isPositive: true },
-  { symbol: 'AAPL-USD', name: 'Apple Inc', price: '$228.10', change: '-0.42%', sparkline: [45, 46, 44, 43, 44, 42, 43, 41], isPositive: false },
-  { symbol: 'TSLA-USD', name: 'Tesla Inc', price: '$260.80', change: '+4.12%', sparkline: [35, 37, 36, 40, 42, 41, 45, 48], isPositive: true },
-];
+const BOARD_SYMBOLS: Record<string, string[]> = {
+  'Core Assets': ['BTC-USD', 'BYTE-USD', 'ETH-USD', 'SOL-USD', 'AAPL', 'RELIANCE', 'TCS'],
+  'Tech Equities': ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN', 'INFY', 'TCS'],
+  'Indian Equities (NSE)': ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'SBIN', 'BHARTIARTL', 'TATAMOTORS'],
+};
 
 export const WatchlistPage: React.FC = () => {
-  const [items, setItems] = useState<WatchlistItem[]>(DEFAULT_WATCHLIST);
   const [activeBoard, setActiveBoard] = useState('Core Assets');
+  const [boardCustomMap, setBoardCustomMap] = useState<Record<string, string[]>>(BOARD_SYMBOLS);
   const [showAlertModal, setShowAlertModal] = useState(false);
   const [alertTargetPrice, setAlertTargetPrice] = useState('89000.00');
 
-  const boards = ['Core Assets', 'Tech Equities', 'Crypto High Beta'];
+  const { getQuote } = useMarketData();
+  const boards = ['Core Assets', 'Tech Equities', 'Indian Equities (NSE)'];
+
+  const currentSymbols = boardCustomMap[activeBoard] || [];
 
   const handleRemove = (symbol: string) => {
-    setItems(items.filter((i) => i.symbol !== symbol));
+    setBoardCustomMap((prev) => ({
+      ...prev,
+      [activeBoard]: (prev[activeBoard] || []).filter((s) => s !== symbol),
+    }));
   };
 
   return (
@@ -43,7 +65,7 @@ export const WatchlistPage: React.FC = () => {
         <div>
           <h1 className="text-xl font-normal text-byte-primary tracking-tight">Watchlist & Alerts</h1>
           <p className="text-xs text-byte-muted mt-0.5 font-normal">
-            Monitor real-time price movements, momentum sparklines, and target price alerts.
+            Monitor real-time price movements across multi-asset boards and setup price target alerts.
           </p>
         </div>
 
@@ -78,7 +100,7 @@ export const WatchlistPage: React.FC = () => {
         </div>
 
         <span className="text-xs text-byte-muted font-mono">
-          {items.length} Tracked Instruments
+          {currentSymbols.length} Tracked Instruments
         </span>
       </div>
 
@@ -91,114 +113,142 @@ export const WatchlistPage: React.FC = () => {
                 <th className="py-2.5 px-4 font-normal">Asset</th>
                 <th className="py-2.5 px-3 font-normal text-right">Price</th>
                 <th className="py-2.5 px-3 font-normal text-right">24h Change</th>
-                <th className="py-2.5 px-3 font-normal text-center hidden sm:table-cell">24h Sparkline</th>
+                <th className="py-2.5 px-3 font-normal text-center hidden sm:table-cell">Feed Status</th>
                 <th className="py-2.5 px-3 font-normal text-center">Alert Target</th>
                 <th className="py-2.5 px-4 font-normal text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-byte-border/40">
-              {items.length === 0 ? (
+              {currentSymbols.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="text-center py-10 text-byte-muted italic font-sans">
                     Your watchlist is empty. Add instruments from the Markets directory.
                   </td>
                 </tr>
               ) : (
-                items.map((item) => (
-                  <tr key={item.symbol} className="hover:bg-byte-secondary/40 transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="flex items-center space-x-2.5">
-                        <Star className="w-3.5 h-3.5 text-byte-accent fill-byte-accent shrink-0" />
-                        <div>
-                          <span className="font-semibold text-byte-primary text-xs block">{item.symbol}</span>
-                          <span className="text-[11px] text-byte-muted font-sans font-normal">{item.name}</span>
+                currentSymbols.map((sym) => {
+                  const quote = getQuote(sym);
+                  const currency = quote?.currency || (sym.includes('-') ? 'USD' : 'INR');
+                  const priceFormatted = formatPrice(quote?.price, currency);
+                  const { percentText, isPositive } = formatChange(quote?.change, quote?.changePercent);
+                  const statusBadge = getStatusBadgeConfig(quote?.status);
+                  const displayName = INSTRUMENT_NAMES[sym] || sym;
+
+                  return (
+                    <tr key={sym} className="hover:bg-byte-secondary/40 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="flex items-center space-x-2.5">
+                          <Star className="w-3.5 h-3.5 text-byte-accent fill-byte-accent shrink-0" />
+                          <div>
+                            <div className="flex items-center space-x-1.5">
+                              <span className="font-semibold text-byte-primary text-xs block">
+                                {sym.replace('-USD', '')}
+                              </span>
+                              <span className="text-[9px] text-byte-tertiary px-1 rounded bg-byte-bg border border-byte-border/40">
+                                {quote?.exchange || (sym.includes('-') ? 'CRYPTO' : 'EQUITY')}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-byte-muted font-sans font-normal block truncate max-w-[160px]">
+                              {displayName}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 text-right font-medium text-byte-primary tnum">{item.price}</td>
-                    <td className="py-3 px-3 text-right tnum">
-                      <span
-                        className={`inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium ${
-                          item.isPositive ? 'text-bull bg-bull/10' : 'text-bear bg-bear/10'
-                        }`}
-                      >
-                        {item.isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                        <span>{item.change}</span>
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-center hidden sm:table-cell">
-                      {/* Mini Sparkline SVG */}
-                      <div className="w-24 h-5 mx-auto">
-                        <svg className="w-full h-full" viewBox="0 0 100 24" fill="none">
-                          <polyline
-                            fill="none"
-                            stroke={item.isPositive ? '#22B982' : '#EF6262'}
-                            strokeWidth="1.2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            points={item.sparkline
-                              .map((val, idx) => `${idx * 14},${24 - (val / 70) * 20}`)
-                              .join(' ')}
-                          />
-                        </svg>
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 text-center">
-                      <span className="px-2 py-0.5 rounded bg-byte-secondary text-[10px] text-byte-muted border border-byte-border font-mono">
-                        None Set
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end space-x-2">
-                        <Link
-                          to={`/trade/${item.symbol}`}
-                          className="px-2 py-1 rounded bg-byte-secondary hover:bg-byte-accent hover:text-byte-accent-contrast text-byte-primary text-xs font-normal transition-colors inline-flex items-center space-x-0.5"
+                      </td>
+
+                      <td className="py-3 px-3 text-right font-medium text-byte-primary tnum">
+                        {priceFormatted}
+                      </td>
+
+                      <td className="py-3 px-3 text-right tnum">
+                        <span
+                          className={`inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium ${
+                            isPositive ? 'text-bull bg-bull/10' : 'text-bear bg-bear/10'
+                          }`}
                         >
-                          <span>Trade</span>
-                          <ArrowUpRight className="w-3 h-3" />
-                        </Link>
-                        <button
-                          onClick={() => handleRemove(item.symbol)}
-                          className="p-1 rounded text-byte-muted hover:text-[#EF6262] transition-colors cursor-pointer"
-                          title="Remove from Watchlist"
+                          {isPositive ? (
+                            <TrendingUp className="w-3 h-3" />
+                          ) : (
+                            <TrendingDown className="w-3 h-3" />
+                          )}
+                          <span>{percentText}</span>
+                        </span>
+                      </td>
+
+                      {/* Feed Status */}
+                      <td className="py-3 px-3 text-center hidden sm:table-cell">
+                        <span
+                          className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono border ${statusBadge.bg} ${statusBadge.text} ${statusBadge.border}`}
+                          title={statusBadge.description}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                          <span className={`w-1.5 h-1.5 rounded-full ${statusBadge.dot}`} />
+                          <span className="font-semibold uppercase">{statusBadge.label}</span>
+                        </span>
+                      </td>
+
+                      <td className="py-3 px-3 text-center text-byte-muted tnum text-[11px]">
+                        {formatPrice((quote?.price || 100) * 1.05, currency)}
+                      </td>
+
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end space-x-2">
+                          <Link
+                            to={`/trade/${sym}`}
+                            className="text-xs text-byte-primary hover:text-byte-accent font-medium inline-flex items-center space-x-0.5 px-2 py-1 rounded hover:bg-byte-secondary transition-colors"
+                          >
+                            <span>Trade</span>
+                            <ArrowUpRight className="w-3 h-3" />
+                          </Link>
+                          <button
+                            onClick={() => handleRemove(sym)}
+                            className="p-1 text-byte-muted hover:text-bear rounded hover:bg-bear/10 transition-colors cursor-pointer"
+                            title="Remove from board"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Price Alert Modal */}
+      {/* Alert Configuration Modal */}
       <Modal
         isOpen={showAlertModal}
         onClose={() => setShowAlertModal(false)}
-        title="Set Price Alert"
-        description="Receive instant notifications when asset crosses target price."
+        title="Create Price Target Alert"
       >
-        <div className="space-y-4 pt-1">
-          <Input
-            label="Target Price (USD)"
-            type="number"
-            value={alertTargetPrice}
-            onChange={(e) => setAlertTargetPrice(e.target.value)}
-          />
-          <div className="p-3 rounded bg-byte-secondary border border-byte-border text-xs text-byte-muted font-normal leading-relaxed">
-            Alert trigger condition: when <strong>BTC/USD</strong> price reaches or exceeds{' '}
-            <span className="font-mono text-byte-primary">${alertTargetPrice}</span>.
+        <div className="space-y-4 font-mono text-xs">
+          <p className="text-byte-muted font-sans">
+            Set an automated webhook or in-app notification when the price crosses your specified threshold.
+          </p>
+
+          <div>
+            <label className="text-byte-muted block mb-1">Target Price (USD/INR)</label>
+            <Input
+              value={alertTargetPrice}
+              onChange={(e) => setAlertTargetPrice(e.target.value)}
+              placeholder="e.g. 89500.00"
+            />
           </div>
-          <Button
-            variant="primary"
-            className="w-full"
-            onClick={() => setShowAlertModal(false)}
-          >
-            Activate Price Alert
-          </Button>
+
+          <div className="flex items-center justify-end space-x-2 pt-2">
+            <Button variant="ghost" size="sm" onClick={() => setShowAlertModal(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setShowAlertModal(false);
+              }}
+            >
+              Arm Alert
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>

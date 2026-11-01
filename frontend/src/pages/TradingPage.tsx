@@ -53,8 +53,8 @@ export const TradingPage: React.FC = () => {
 
         {/* Right Column: Order Book & Order Entry (3 cols on xl) */}
         <div className="xl:col-span-3 space-y-3">
-          <OrderBook orderBook={orderBook} />
-          <TradeHistory trades={trades} />
+          <OrderBook orderBook={orderBook} symbol={symbol} />
+          <TradeHistory trades={trades} symbol={symbol} />
           <OrderForm symbol={symbol} onOrderCreated={handleOrderChange} />
         </div>
       </div>

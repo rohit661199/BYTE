@@ -9,7 +9,7 @@ interface WsPayloadInit {
 }
 
 interface WsMessage {
-  type: 'ORDER_BOOK_UPDATE' | 'TRADE_EXECUTED' | 'STATS_UPDATE' | 'INIT';
+  type: 'ORDER_BOOK_UPDATE' | 'TRADE_EXECUTED' | 'STATS_UPDATE' | 'INIT' | 'MARKET_QUOTE_UPDATE' | 'CANDLE_UPDATE' | 'AUTH_RESPONSE';
   payload: unknown;
   timestamp: string;
 }
@@ -77,6 +77,9 @@ export function useWebSocket() {
 
       ws.onopen = () => {
         setIsConnected(true);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('byte:ws:connected', { detail: { connected: true } }));
+        }
       };
 
       ws.onmessage = (event) => {
@@ -112,6 +115,18 @@ export function useWebSocket() {
             }
             case 'TRADE_EXECUTED': {
               if (Array.isArray(message.payload)) setTrades(message.payload as Trade[]);
+              break;
+            }
+            case 'MARKET_QUOTE_UPDATE': {
+              if (typeof window !== 'undefined' && message.payload) {
+                window.dispatchEvent(new CustomEvent('byte:market_quote', { detail: message.payload }));
+              }
+              break;
+            }
+            case 'CANDLE_UPDATE': {
+              if (typeof window !== 'undefined' && message.payload) {
+                window.dispatchEvent(new CustomEvent('byte:candle_update', { detail: message.payload }));
+              }
               break;
             }
           }
