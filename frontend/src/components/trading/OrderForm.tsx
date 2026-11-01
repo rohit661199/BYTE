@@ -1,13 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { CreateOrderDTO, OrderSide, OrderType } from '../../types/index';
 import { apiService } from '../../services/api';
-import { formatCurrency } from '../../utils/formatters';
+import { formatPrice } from '../../utils/formatters';
+import { useMarketData } from '../../context/MarketDataContext';
 
 interface OrderFormProps {
   symbol?: string;
   onOrderCreated?: () => void;
 }
+
+const NSE_SYMBOLS = [
+  'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK',
+  'SBIN', 'BHARTIARTL', 'ITC', 'LT', 'WIPRO',
+  'AXISBANK', 'BAJFINANCE', 'MARUTI', 'HINDUNILVR', 'TATAMOTORS'
+];
 
 export const OrderForm: React.FC<OrderFormProps> = ({ symbol = 'BYTE-USD', onOrderCreated }) => {
   const [side, setSide] = useState<OrderSide>('BUY');
@@ -18,7 +25,32 @@ export const OrderForm: React.FC<OrderFormProps> = ({ symbol = 'BYTE-USD', onOrd
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const baseAsset = (symbol || 'BYTE').split('-')[0];
+  const { getQuote } = useMarketData();
+  const cleanSymbol = (symbol || 'BYTE-USD').trim().toUpperCase();
+  const quote = getQuote(cleanSymbol);
+
+  const isNSE = quote?.exchange === 'NSE' || NSE_SYMBOLS.includes(cleanSymbol);
+  const currency: 'USD' | 'INR' = quote?.currency === 'INR' || isNSE ? 'INR' : 'USD';
+  const currencySymbol = currency === 'INR' ? '₹' : '$';
+
+  const baseAsset = cleanSymbol.includes('-') ? cleanSymbol.split('-')[0] : cleanSymbol;
+
+  // Initialize or update sensible price when instrument changes
+  useEffect(() => {
+    if (quote?.price && quote.price > 0) {
+      setPrice(quote.price.toFixed(2));
+    } else if (currency === 'INR') {
+      setPrice('2950.00');
+    } else if (cleanSymbol === 'BTC-USD') {
+      setPrice('78000.00');
+    } else if (cleanSymbol === 'ETH-USD') {
+      setPrice('2600.00');
+    } else if (cleanSymbol === 'AAPL') {
+      setPrice('228.00');
+    } else {
+      setPrice('100.00');
+    }
+  }, [cleanSymbol, currency]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,6 +75,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({ symbol = 'BYTE-USD', onOrd
       type,
       price: type === 'LIMIT' ? numericPrice : 0,
       quantity: numericQuantity,
+      symbol: cleanSymbol,
     };
 
     try {
@@ -127,8 +160,8 @@ export const OrderForm: React.FC<OrderFormProps> = ({ symbol = 'BYTE-USD', onOrd
         {type === 'LIMIT' && (
           <div>
             <div className="flex justify-between text-[10px] text-byte-muted mb-1">
-              <span>Price</span>
-              <span>USD</span>
+              <span>Price ({currencySymbol})</span>
+              <span>{currency}</span>
             </div>
             <input
               type="number"
@@ -137,7 +170,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({ symbol = 'BYTE-USD', onOrd
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               className="w-full bg-byte-secondary border border-byte-border rounded px-2.5 py-1 text-xs text-byte-primary font-mono focus:outline-none focus:border-byte-accent tnum"
-              placeholder="100.00"
+              placeholder={quote?.price ? quote.price.toFixed(2) : (currency === 'INR' ? '2950.00' : '100.00')}
               required
             />
           </div>
@@ -181,13 +214,13 @@ export const OrderForm: React.FC<OrderFormProps> = ({ symbol = 'BYTE-USD', onOrd
         {/* Order Summary & Submit */}
         <div className="pt-2 border-t border-byte-border space-y-1.5 text-[11px]">
           <div className="flex justify-between text-byte-muted">
-            <span>Available</span>
-            <span className="text-byte-primary font-semibold">$10,000.00</span>
+            <span>Available (USD Wallet)</span>
+            <span className="text-byte-primary font-semibold">$10,000.00 USD</span>
           </div>
           {type === 'LIMIT' && (
             <div className="flex justify-between text-byte-muted">
-              <span>Total Value</span>
-              <span className="text-byte-primary font-bold tnum">{formatCurrency(estimatedTotal)}</span>
+              <span>Total Value ({currency})</span>
+              <span className="text-byte-primary font-bold tnum">{formatPrice(estimatedTotal, currency)}</span>
             </div>
           )}
         </div>

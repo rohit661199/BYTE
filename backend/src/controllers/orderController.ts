@@ -3,6 +3,7 @@ import { OrderService } from '../services/orderService.js';
 import { InstrumentRegistry } from '../services/InstrumentRegistry.js';
 import { MathPrecision } from '../utils/MathPrecision.js';
 import { Order } from '../types/index.js';
+import { formatTradeResponse } from './tradeController.js';
 
 export function formatOrderResponse(order: Order) {
   const canonical = InstrumentRegistry.getCanonicalSymbol(order.symbol || 'BYTE-USD');
@@ -63,7 +64,7 @@ export class OrderController {
           : 'Order created successfully',
         data: {
           order: formatOrderResponse(result.order),
-          trades: result.trades,
+          trades: result.trades.map(formatTradeResponse),
           reservation: result.reservation
             ? {
                 reservationId: result.reservation.reservationId,
@@ -94,12 +95,39 @@ export class OrderController {
     }
   }
 
-  static getAllOrders(_req: Request, res: Response, next: NextFunction): void {
+  static getAllOrders(req: Request, res: Response, next: NextFunction): void {
     try {
-      const orders = OrderService.getAllOrders();
+      const hasPaginationOrFilter =
+        req.query.limit != null ||
+        req.query.offset != null ||
+        req.query.status != null ||
+        req.query.search != null;
+
+      if (!hasPaginationOrFilter) {
+        // Preserves exact backward compatibility when no pagination or filter params are supplied
+        const orders = OrderService.getAllOrders();
+        res.status(200).json({
+          success: true,
+          data: orders.map(formatOrderResponse),
+          total: orders.length,
+        });
+        return;
+      }
+
+      const parsedLimit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+      const limit = !isNaN(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 100) : 50;
+      const parsedOffset = req.query.offset ? parseInt(req.query.offset as string, 10) : 0;
+      const offset = !isNaN(parsedOffset) && parsedOffset > 0 ? parsedOffset : 0;
+      const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+      const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+
+      const result = OrderService.getOrdersPaginated({ limit, offset, status, search });
       res.status(200).json({
         success: true,
-        data: orders.map(formatOrderResponse),
+        data: result.orders.map(formatOrderResponse),
+        total: result.total,
+        limit,
+        offset,
       });
     } catch (error) {
       next(error);

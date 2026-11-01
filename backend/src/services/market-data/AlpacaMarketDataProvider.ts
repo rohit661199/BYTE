@@ -1,6 +1,6 @@
 import { WebSocket } from 'ws';
 import { IMarketDataProvider } from './IMarketDataProvider.js';
-import { MarketQuote, ProviderHealthStatus, Candle, CandleInterval } from '../../types/marketData.js';
+import { MarketQuote, ProviderHealthStatus, Candle, CandleInterval, DataStatus } from '../../types/marketData.js';
 import { config } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { InstrumentRegistry } from '../InstrumentRegistry.js';
@@ -9,16 +9,65 @@ export class AlpacaMarketDataProvider implements IMarketDataProvider {
   public readonly name = 'AlpacaMarketDataProvider';
   public readonly supportedSymbols = ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN'];
 
-  private ws: WebSocket | null = null;
-  private isStreaming = false;
-  private isAuthenticated = false;
-  private reconnectTimer: NodeJS.Timeout | null = null;
-  private reconnectAttempts = 0;
-  private readonly maxReconnectDelay = 30000;
+  // Shared WebSocket connection singleton across all instances
+  public static sharedWs: WebSocket | null = null;
+  public static sharedIsConnecting = false;
+  public static sharedIsAuthenticated = false;
+  public static sharedConnectionLimitExceeded = false;
+  public static sharedSubscribedSymbols = new Set<string>();
+  public static sharedListeners = new Set<(quote: MarketQuote) => void>();
+  public static sharedReconnectTimer: NodeJS.Timeout | null = null;
+  public static sharedReconnectAttempts = 0;
+  public static readonly maxReconnectDelay = 30000;
+  public static lastStreamUpdateTimestamp = 0;
+  public static sharedLastError?: string;
+  public static initPromise: Promise<void> | null = null;
+  public static wsFactory: (url: string) => any = (url: string) => new WebSocket(url);
+
+  public get ws(): WebSocket | null {
+    return AlpacaMarketDataProvider.sharedWs;
+  }
+
+  public get isAuthenticated(): boolean {
+    return AlpacaMarketDataProvider.sharedIsAuthenticated;
+  }
+
+  public get reconnectTimer(): NodeJS.Timeout | null {
+    return AlpacaMarketDataProvider.sharedReconnectTimer;
+  }
+
   private lastQuoteMap = new Map<string, MarketQuote>();
   private lastUpdateTimestamp = 0;
   private lastError?: string;
   private onQuoteCallback: ((quote: MarketQuote) => void) | null = null;
+
+  public static resetSharedState(): void {
+    if (this.sharedReconnectTimer) {
+      clearTimeout(this.sharedReconnectTimer);
+      this.sharedReconnectTimer = null;
+    }
+    if (this.sharedWs) {
+      try {
+        this.sharedWs.on('error', () => {});
+        this.sharedWs.removeAllListeners();
+        if (this.sharedWs.readyState === WebSocket.OPEN) {
+          this.sharedWs.close();
+        } else {
+          this.sharedWs.terminate();
+        }
+      } catch (_) {}
+      this.sharedWs = null;
+    }
+    this.sharedIsConnecting = false;
+    this.sharedIsAuthenticated = false;
+    this.sharedConnectionLimitExceeded = false;
+    this.sharedSubscribedSymbols.clear();
+    this.sharedListeners.clear();
+    this.sharedReconnectAttempts = 0;
+    this.lastStreamUpdateTimestamp = 0;
+    this.sharedLastError = undefined;
+    this.initPromise = null;
+  }
 
   public async initialize(): Promise<void> {
     if (!this.hasCredentials()) {
@@ -28,14 +77,25 @@ export class AlpacaMarketDataProvider implements IMarketDataProvider {
       return;
     }
 
-    try {
-      await this.fetchRestSnapshot();
-      logger.info('[AlpacaProvider] Initialized successfully via Alpaca IEX REST bars.');
-    } catch (err: any) {
-      this.lastError = err.response?.data?.message || err.message || 'REST bars request failed';
-      logger.warn(`[AlpacaProvider] Initial REST snapshot warning: ${this.lastError}. Operating in PREVIEW fallback.`);
-      this.populateBaselineQuotes();
+    if (AlpacaMarketDataProvider.initPromise) {
+      await AlpacaMarketDataProvider.initPromise;
+      return;
     }
+
+    AlpacaMarketDataProvider.initPromise = (async () => {
+      try {
+        await this.fetchRestSnapshot();
+        logger.info('[AlpacaProvider] Initialized successfully via Alpaca IEX REST bars.');
+      } catch (err: any) {
+        this.lastError = err.response?.data?.message || err.message || 'REST bars request failed';
+        logger.warn(`[AlpacaProvider] Initial REST snapshot warning: ${this.lastError}. Operating in PREVIEW fallback.`);
+        this.populateBaselineQuotes();
+      }
+    })().finally(() => {
+      AlpacaMarketDataProvider.initPromise = null;
+    });
+
+    await AlpacaMarketDataProvider.initPromise;
   }
 
   public async getLatestQuote(symbol: string): Promise<MarketQuote | null> {
@@ -45,6 +105,52 @@ export class AlpacaMarketDataProvider implements IMarketDataProvider {
 
   public async getLatestQuotes(): Promise<MarketQuote[]> {
     return Array.from(this.lastQuoteMap.values());
+  }
+
+  public static calculateDateRange(
+    interval: CandleInterval,
+    limit: number,
+    now: Date = new Date()
+  ): { start: string; end: string } {
+    const safeLimit = Math.min(Math.max(limit, 1), 1000);
+    let daysBack = 7;
+
+    switch (interval) {
+      case '1m':
+      case '5m':
+      case '15m': {
+        const barsPerDay = interval === '1m' ? 390 : interval === '5m' ? 78 : 26;
+        const tradingDaysNeeded = Math.ceil(safeLimit / barsPerDay);
+        daysBack = Math.max(tradingDaysNeeded * 2 + 4, 7);
+        break;
+      }
+      case '1h': {
+        const tradingDaysNeeded = Math.ceil(safeLimit / 6.5);
+        daysBack = Math.max(tradingDaysNeeded * 2 + 4, 7);
+        break;
+      }
+      case '4h': {
+        const tradingDaysNeeded = Math.ceil((safeLimit * 4) / 6.5);
+        daysBack = Math.max(tradingDaysNeeded * 2 + 4, 10);
+        break;
+      }
+      case '1d': {
+        daysBack = Math.max(Math.ceil(safeLimit * 2) + 7, 14);
+        break;
+      }
+      case '1w': {
+        daysBack = Math.max(Math.ceil(safeLimit * 7 * 1.5) + 14, 30);
+        break;
+      }
+      default:
+        daysBack = Math.max(safeLimit * 2, 7);
+    }
+
+    const startDate = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
+    return {
+      start: startDate.toISOString(),
+      end: now.toISOString(),
+    };
   }
 
   public static aggregateCandles(candles: Candle[], targetIntervalMs: number, sourceName?: string): Candle[] {
@@ -118,7 +224,9 @@ export class AlpacaMarketDataProvider implements IMarketDataProvider {
 
     const timeframe = timeframeMap[interval] || '1Day';
     const fetchLimit = interval === '4h' ? Math.min(Math.max(limit * 4, 4), 1000) : Math.min(Math.max(limit, 1), 1000);
-    const url = `${config.alpaca.baseUrl}/v2/stocks/bars?symbols=${canonical}&timeframe=${timeframe}&limit=${fetchLimit}&feed=${config.alpaca.dataFeed}&sort=asc`;
+    const dateRange = AlpacaMarketDataProvider.calculateDateRange(interval, fetchLimit);
+
+    const url = `${config.alpaca.baseUrl}/v2/stocks/bars?symbols=${canonical}&timeframe=${timeframe}&start=${encodeURIComponent(dateRange.start)}&end=${encodeURIComponent(dateRange.end)}&limit=${fetchLimit}&feed=${config.alpaca.dataFeed}&sort=desc`;
 
     try {
       const res = await fetch(url, {
@@ -159,52 +267,120 @@ export class AlpacaMarketDataProvider implements IMarketDataProvider {
     }
   }
 
-
   public async startStreaming(onQuote: (quote: MarketQuote) => void): Promise<void> {
+    if (this.onQuoteCallback) {
+      AlpacaMarketDataProvider.sharedListeners.delete(this.onQuoteCallback);
+    }
     this.onQuoteCallback = onQuote;
-    this.isStreaming = true;
+    AlpacaMarketDataProvider.sharedListeners.add(onQuote);
+
+    for (const sym of this.supportedSymbols) {
+      AlpacaMarketDataProvider.sharedSubscribedSymbols.add(sym);
+    }
 
     if (!this.hasCredentials()) {
       logger.info('[AlpacaProvider] Skipping WebSocket connection (no credentials). Live stream paused.');
       return;
     }
 
-    this.connectWebSocket();
+    if (AlpacaMarketDataProvider.sharedConnectionLimitExceeded) {
+      // If a caller explicitly calls startStreaming, allow a fresh recovery attempt if not currently active
+      if (!AlpacaMarketDataProvider.sharedWs && !AlpacaMarketDataProvider.sharedIsConnecting) {
+        logger.info('[AlpacaProvider] Retrying IEX stream connection after previous connection limit error...');
+        AlpacaMarketDataProvider.sharedConnectionLimitExceeded = false;
+        if (AlpacaMarketDataProvider.sharedReconnectTimer) {
+          clearTimeout(AlpacaMarketDataProvider.sharedReconnectTimer);
+          AlpacaMarketDataProvider.sharedReconnectTimer = null;
+        }
+      } else {
+        logger.warn('[AlpacaProvider] Connection limit exceeded on Alpaca stream. Skipping connection attempt to protect account.');
+        return;
+      }
+    }
+
+    if (AlpacaMarketDataProvider.sharedWs && AlpacaMarketDataProvider.sharedWs.readyState === WebSocket.OPEN) {
+      if (AlpacaMarketDataProvider.sharedIsAuthenticated) {
+        this.sendSharedSubscribe();
+      }
+      return;
+    }
+
+    if (AlpacaMarketDataProvider.sharedIsConnecting) {
+      return;
+    }
+
+    this.connectSharedWebSocket();
   }
 
   public async stopStreaming(): Promise<void> {
-    this.isStreaming = false;
-    this.isAuthenticated = false;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
+    if (this.onQuoteCallback) {
+      AlpacaMarketDataProvider.sharedListeners.delete(this.onQuoteCallback);
+      this.onQuoteCallback = null;
     }
-    if (this.ws) {
-      try {
-        this.ws.on('error', () => {});
-        this.ws.removeAllListeners();
-        if (this.ws.readyState === WebSocket.OPEN) {
-          this.ws.close();
-        } else {
-          this.ws.terminate();
-        }
-      } catch (_) {
-        // Safe close
+
+    // Only close underlying socket if all listeners across all instances have detached
+    if (AlpacaMarketDataProvider.sharedListeners.size === 0) {
+      if (AlpacaMarketDataProvider.sharedReconnectTimer) {
+        clearTimeout(AlpacaMarketDataProvider.sharedReconnectTimer);
+        AlpacaMarketDataProvider.sharedReconnectTimer = null;
       }
-      this.ws = null;
+      if (AlpacaMarketDataProvider.sharedWs) {
+        try {
+          AlpacaMarketDataProvider.sharedWs.on('error', () => {});
+          AlpacaMarketDataProvider.sharedWs.removeAllListeners();
+          if (AlpacaMarketDataProvider.sharedWs.readyState === WebSocket.OPEN) {
+            AlpacaMarketDataProvider.sharedWs.close();
+          } else {
+            AlpacaMarketDataProvider.sharedWs.terminate();
+          }
+        } catch (_) {}
+        AlpacaMarketDataProvider.sharedWs = null;
+      }
+      AlpacaMarketDataProvider.sharedIsAuthenticated = false;
+      AlpacaMarketDataProvider.sharedIsConnecting = false;
+      AlpacaMarketDataProvider.sharedConnectionLimitExceeded = false;
+      AlpacaMarketDataProvider.sharedSubscribedSymbols.clear();
+      logger.info('[AlpacaProvider] Stopped shared streaming socket.');
     }
-    logger.info('[AlpacaProvider] Stopped streaming.');
   }
 
   public getStatus(): ProviderHealthStatus {
     const hasKeys = this.hasCredentials();
-    const isConnected = this.ws !== null && this.ws.readyState === WebSocket.OPEN && this.isAuthenticated;
+    if (!hasKeys) {
+      return {
+        name: this.name,
+        connected: false,
+        status: 'PREVIEW',
+        lastUpdateTimestamp: this.lastUpdateTimestamp,
+        error: this.lastError,
+        redistributionNotice: 'Alpaca free tier provides unconsolidated IEX exchange quotes (not full US consolidated tape).',
+      };
+    }
+
+    const isConnected = AlpacaMarketDataProvider.sharedWs !== null &&
+      AlpacaMarketDataProvider.sharedWs.readyState === WebSocket.OPEN &&
+      AlpacaMarketDataProvider.sharedIsAuthenticated;
+
+    const now = Date.now();
+    const isStreamFresh = isConnected &&
+      AlpacaMarketDataProvider.lastStreamUpdateTimestamp > 0 &&
+      (now - AlpacaMarketDataProvider.lastStreamUpdateTimestamp < 60_000);
+
+    let dataStatus: DataStatus = 'UNAVAILABLE';
+    if (isStreamFresh) {
+      dataStatus = 'LIVE';
+    } else if (this.lastQuoteMap.size > 0 || isConnected) {
+      dataStatus = 'DELAYED';
+    }
+
+    const err = this.lastError || AlpacaMarketDataProvider.sharedLastError;
+
     return {
       name: this.name,
       connected: isConnected,
-      status: !hasKeys ? 'PREVIEW' : isConnected ? 'LIVE' : this.lastQuoteMap.size > 0 ? 'DELAYED' : 'UNAVAILABLE',
-      lastUpdateTimestamp: this.lastUpdateTimestamp,
-      error: this.lastError,
+      status: AlpacaMarketDataProvider.sharedConnectionLimitExceeded ? 'UNAVAILABLE' : dataStatus,
+      lastUpdateTimestamp: Math.max(this.lastUpdateTimestamp, AlpacaMarketDataProvider.lastStreamUpdateTimestamp),
+      error: err,
       redistributionNotice: 'Alpaca free tier provides unconsolidated IEX exchange quotes (not full US consolidated tape).',
     };
   }
@@ -240,7 +416,7 @@ export class AlpacaMarketDataProvider implements IMarketDataProvider {
     for (const symbol of this.supportedSymbols) {
       const bar = bars[symbol];
       if (bar) {
-        const quote = this.normalizeBarData(symbol, bar);
+        const quote = this.normalizeBarData(symbol, bar, 'DELAYED');
         this.lastQuoteMap.set(symbol, quote);
         this.lastUpdateTimestamp = Date.now();
         if (this.onQuoteCallback) {
@@ -250,123 +426,201 @@ export class AlpacaMarketDataProvider implements IMarketDataProvider {
     }
   }
 
-  private connectWebSocket(): void {
-    if (!this.isStreaming || !this.hasCredentials()) return;
+  private connectSharedWebSocket(): void {
+    if (!this.hasCredentials() || AlpacaMarketDataProvider.sharedConnectionLimitExceeded) return;
 
     try {
-      this.ws = new WebSocket(config.alpaca.wsUrl);
+      AlpacaMarketDataProvider.sharedIsConnecting = true;
+      const factory = (this as any).wsConstructor
+        ? (url: string) => new (this as any).wsConstructor(url)
+        : AlpacaMarketDataProvider.wsFactory;
 
-      this.ws.on('open', () => {
-        logger.info('[AlpacaProvider] WebSocket connected. Authenticating with IEX stream...');
-        this.reconnectAttempts = 0;
-        this.sendAuth();
+      const ws = factory(config.alpaca.wsUrl);
+      AlpacaMarketDataProvider.sharedWs = ws;
+
+      ws.on('open', () => {
+        logger.info('[AlpacaProvider] WebSocket connected to IEX stream. Awaiting connection greeting...');
+        AlpacaMarketDataProvider.sharedIsConnecting = false;
+        AlpacaMarketDataProvider.sharedReconnectAttempts = 0;
       });
 
-      this.ws.on('message', (data: any) => {
+      ws.on('message', (data: any) => {
         try {
           const messages = JSON.parse(data.toString());
           if (!Array.isArray(messages)) return;
 
           for (const msg of messages) {
-            this.handleWebSocketMessage(msg);
+            this.handleSharedWebSocketMessage(msg);
           }
         } catch (err: any) {
           logger.debug(`[AlpacaProvider] WS message parse error: ${err.message}`);
         }
       });
 
-      this.ws.on('error', (err: any) => {
-        this.lastError = err.message || 'WebSocket error';
-        logger.warn(`[AlpacaProvider] WebSocket error: ${this.lastError}`);
+      ws.on('error', (err: any) => {
+        AlpacaMarketDataProvider.sharedLastError = err.message || 'WebSocket error';
+        this.lastError = AlpacaMarketDataProvider.sharedLastError;
+        logger.warn(`[AlpacaProvider] WebSocket error: ${AlpacaMarketDataProvider.sharedLastError}`);
       });
 
-      this.ws.on('close', () => {
-        this.ws = null;
-        this.isAuthenticated = false;
-        if (this.isStreaming && config.marketData.reconnect && this.hasCredentials()) {
-          this.scheduleReconnect();
+      ws.on('close', () => {
+        AlpacaMarketDataProvider.sharedWs = null;
+        AlpacaMarketDataProvider.sharedIsAuthenticated = false;
+        AlpacaMarketDataProvider.sharedIsConnecting = false;
+
+        if (
+          !AlpacaMarketDataProvider.sharedConnectionLimitExceeded &&
+          config.marketData.reconnect &&
+          this.hasCredentials() &&
+          AlpacaMarketDataProvider.sharedListeners.size > 0
+        ) {
+          this.scheduleSharedReconnect();
         }
       });
     } catch (err: any) {
-      this.lastError = err.message || 'WebSocket connection error';
+      AlpacaMarketDataProvider.sharedIsConnecting = false;
+      AlpacaMarketDataProvider.sharedLastError = err.message || 'WebSocket connection error';
+      this.lastError = AlpacaMarketDataProvider.sharedLastError;
       logger.error(`[AlpacaProvider] Connection failed: ${this.lastError}`);
-      this.scheduleReconnect();
+      if (!AlpacaMarketDataProvider.sharedConnectionLimitExceeded) {
+        this.scheduleSharedReconnect();
+      }
     }
   }
 
-  private sendAuth(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+  private sendSharedAuth(): void {
+    const ws = AlpacaMarketDataProvider.sharedWs;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
     const authMsg = {
       action: 'auth',
       key: config.alpaca.apiKey,
       secret: config.alpaca.apiSecret,
     };
-    this.ws.send(JSON.stringify(authMsg));
+    ws.send(JSON.stringify(authMsg));
   }
 
-  private sendSubscribe(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+  private sendSharedSubscribe(): void {
+    const ws = AlpacaMarketDataProvider.sharedWs;
+    if (!ws || ws.readyState !== WebSocket.OPEN || !AlpacaMarketDataProvider.sharedIsAuthenticated) return;
+    for (const sym of this.supportedSymbols) {
+      AlpacaMarketDataProvider.sharedSubscribedSymbols.add(sym);
+    }
+    const symbols = Array.from(AlpacaMarketDataProvider.sharedSubscribedSymbols);
     const subMsg = {
       action: 'subscribe',
-      bars: this.supportedSymbols,
-      quotes: this.supportedSymbols,
+      bars: symbols,
+      quotes: symbols,
     };
-    this.ws.send(JSON.stringify(subMsg));
-    logger.info(`[AlpacaProvider] Subscribed to IEX quotes and bars for: ${this.supportedSymbols.join(', ')}`);
+    ws.send(JSON.stringify(subMsg));
+    logger.info(`[AlpacaProvider] Subscribed to IEX quotes and bars for: ${symbols.join(', ')}`);
   }
 
-  private handleWebSocketMessage(msg: any): void {
+  private handleSharedWebSocketMessage(msg: any): void {
+    // 1. Connection established greeting from Alpaca
     if (msg.T === 'success' && msg.msg === 'connected') {
-      logger.info('[AlpacaProvider] Authentication successful on IEX stream.');
-      this.isAuthenticated = true;
+      logger.info('[AlpacaProvider] Connection established with IEX stream. Sending authentication...');
+      this.sendSharedAuth();
+      return;
+    }
+
+    // 2. Authentication confirmed
+    if (msg.T === 'success' && msg.msg === 'authenticated') {
+      logger.info('[AlpacaProvider] Authentication successful on IEX stream. Subscribing to symbols...');
+      AlpacaMarketDataProvider.sharedIsAuthenticated = true;
+      AlpacaMarketDataProvider.sharedConnectionLimitExceeded = false;
+      AlpacaMarketDataProvider.sharedLastError = undefined;
       this.lastError = undefined;
-      this.sendSubscribe();
+      this.sendSharedSubscribe();
       return;
     }
 
+    // 3. Error message from Alpaca
     if (msg.T === 'error') {
-      this.lastError = `Alpaca Stream Error (${msg.code}): ${msg.msg}`;
-      logger.warn(`[AlpacaProvider] ${this.lastError}`);
-      if (msg.code === 402 || msg.code === 406) {
-        this.isAuthenticated = false;
+      const errMsg = `Alpaca Stream Error (${msg.code}): ${msg.msg}`;
+      AlpacaMarketDataProvider.sharedLastError = errMsg;
+      this.lastError = errMsg;
+      logger.warn(`[AlpacaProvider] ${errMsg}`);
+
+      if (msg.code === 406) {
+        // Connection limit exceeded — disable auto-reconnect to protect account
+        AlpacaMarketDataProvider.sharedConnectionLimitExceeded = true;
+        AlpacaMarketDataProvider.sharedIsAuthenticated = false;
+        if (AlpacaMarketDataProvider.sharedReconnectTimer) {
+          clearTimeout(AlpacaMarketDataProvider.sharedReconnectTimer);
+          AlpacaMarketDataProvider.sharedReconnectTimer = null;
+        }
+        if (AlpacaMarketDataProvider.sharedWs) {
+          try {
+            AlpacaMarketDataProvider.sharedWs.close();
+          } catch (_) {}
+        }
+        return;
+      }
+
+      if (msg.code === 401 || msg.code === 402) {
+        AlpacaMarketDataProvider.sharedIsAuthenticated = false;
+        if (AlpacaMarketDataProvider.sharedReconnectTimer) {
+          clearTimeout(AlpacaMarketDataProvider.sharedReconnectTimer);
+          AlpacaMarketDataProvider.sharedReconnectTimer = null;
+        }
+        return;
       }
       return;
     }
 
-    // Handle bar update ('b')
+    // 4. Bar update ('b')
     if (msg.T === 'b' && msg.S) {
-      const quote = this.normalizeBarData(msg.S, msg);
+      const quote = this.normalizeBarData(msg.S, msg, 'LIVE');
       this.lastQuoteMap.set(msg.S, quote);
       this.lastUpdateTimestamp = Date.now();
-      if (this.onQuoteCallback) {
-        this.onQuoteCallback(quote);
+      AlpacaMarketDataProvider.lastStreamUpdateTimestamp = Date.now();
+
+      for (const listener of AlpacaMarketDataProvider.sharedListeners) {
+        try {
+          listener(quote);
+        } catch (_) {}
       }
       return;
     }
 
-    // Handle quote update ('q')
+    // 5. Quote update ('q')
     if (msg.T === 'q' && msg.S) {
-      const quote = this.normalizeQuoteData(msg.S, msg);
+      const quote = this.normalizeQuoteData(msg.S, msg, 'LIVE');
       this.lastQuoteMap.set(msg.S, quote);
       this.lastUpdateTimestamp = Date.now();
-      if (this.onQuoteCallback) {
-        this.onQuoteCallback(quote);
+      AlpacaMarketDataProvider.lastStreamUpdateTimestamp = Date.now();
+
+      for (const listener of AlpacaMarketDataProvider.sharedListeners) {
+        try {
+          listener(quote);
+        } catch (_) {}
       }
     }
   }
 
-  private scheduleReconnect(): void {
-    if (this.reconnectTimer || !this.isStreaming || !this.hasCredentials()) return;
-    this.reconnectAttempts++;
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), this.maxReconnectDelay);
-    logger.info(`[AlpacaProvider] Reconnecting in ${delay}ms (attempt #${this.reconnectAttempts})...`);
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.connectWebSocket();
+  private scheduleSharedReconnect(): void {
+    if (
+      AlpacaMarketDataProvider.sharedReconnectTimer ||
+      AlpacaMarketDataProvider.sharedConnectionLimitExceeded ||
+      !this.hasCredentials() ||
+      AlpacaMarketDataProvider.sharedListeners.size === 0
+    ) {
+      return;
+    }
+
+    AlpacaMarketDataProvider.sharedReconnectAttempts++;
+    const delay = Math.min(
+      1000 * Math.pow(2, AlpacaMarketDataProvider.sharedReconnectAttempts),
+      AlpacaMarketDataProvider.maxReconnectDelay
+    );
+    logger.info(`[AlpacaProvider] Reconnecting shared socket in ${delay}ms (attempt #${AlpacaMarketDataProvider.sharedReconnectAttempts})...`);
+    AlpacaMarketDataProvider.sharedReconnectTimer = setTimeout(() => {
+      AlpacaMarketDataProvider.sharedReconnectTimer = null;
+      this.connectSharedWebSocket();
     }, delay);
   }
 
-  public normalizeBarData(symbol: string, bar: any): MarketQuote {
+  public normalizeBarData(symbol: string, bar: any, overrideStatus?: DataStatus): MarketQuote {
     const inst = InstrumentRegistry.getInstrument(symbol);
     const baseline = inst?.baselinePrice || 200;
     const priceNum = typeof bar.c === 'number' ? bar.c : baseline;
@@ -395,12 +649,12 @@ export class AlpacaMarketDataProvider implements IMarketDataProvider {
       source: 'ALPACA_IEX',
       sourceTimestamp: timestamp,
       receivedTimestamp: Date.now(),
-      status: this.hasCredentials() ? 'LIVE' : 'PREVIEW',
+      status: overrideStatus || (this.hasCredentials() ? 'LIVE' : 'PREVIEW'),
       regulatoryNotice: 'Unconsolidated IEX market data. Does not represent complete consolidated US market volume.',
     };
   }
 
-  public normalizeQuoteData(symbol: string, quote: any): MarketQuote {
+  public normalizeQuoteData(symbol: string, quote: any, overrideStatus?: DataStatus): MarketQuote {
     const inst = InstrumentRegistry.getInstrument(symbol);
     const baseline = inst?.baselinePrice || 200;
     const bp = typeof quote.bp === 'number' ? quote.bp : 0;
@@ -428,7 +682,7 @@ export class AlpacaMarketDataProvider implements IMarketDataProvider {
       source: 'ALPACA_IEX',
       sourceTimestamp: timestamp,
       receivedTimestamp: Date.now(),
-      status: this.hasCredentials() ? 'LIVE' : 'PREVIEW',
+      status: overrideStatus || (this.hasCredentials() ? 'LIVE' : 'PREVIEW'),
       regulatoryNotice: 'Unconsolidated IEX market data. Does not represent complete consolidated US market volume.',
     };
   }

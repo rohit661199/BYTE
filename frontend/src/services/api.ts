@@ -33,9 +33,32 @@ export const apiService = {
     return res.data.data;
   },
 
-  async getAllOrders(): Promise<Order[]> {
-    const res = await apiClient.get<ApiResponse<Order[]>>('/orders');
+  async getAllOrders(limit?: number, offset?: number): Promise<Order[]> {
+    const params = new URLSearchParams();
+    if (limit != null) params.set('limit', limit.toString());
+    if (offset != null) params.set('offset', offset.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const res = await apiClient.get<ApiResponse<Order[]>>(`/orders${query}`);
     return res.data.data;
+  },
+
+  async getOrdersPaginated(options?: {
+    limit?: number;
+    offset?: number;
+    status?: string;
+    search?: string;
+  }): Promise<{ orders: Order[]; total: number }> {
+    const params = new URLSearchParams();
+    if (options?.limit != null) params.set('limit', options.limit.toString());
+    if (options?.offset != null) params.set('offset', options.offset.toString());
+    if (options?.status && options.status !== 'ALL') params.set('status', options.status);
+    if (options?.search && options.search.trim()) params.set('search', options.search.trim());
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const res = await apiClient.get<ApiResponse<Order[]>>(`/orders${query}`);
+    return {
+      orders: res.data.data || [],
+      total: res.data.total ?? (res.data.data ? res.data.data.length : 0),
+    };
   },
 
   async createOrder(order: CreateOrderDTO): Promise<{ order: Order; trades: Trade[] }> {

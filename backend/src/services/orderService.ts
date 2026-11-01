@@ -338,8 +338,17 @@ export class OrderService {
     return { ...order, status: 'CANCELLED' };
   }
 
-  static getAllOrders(): Order[] {
-    return OrderModel.getAll();
+  static getAllOrders(limit?: number, offset?: number): Order[] {
+    return OrderModel.getAll(limit, offset);
+  }
+
+  static getOrdersPaginated(options: {
+    limit?: number;
+    offset?: number;
+    status?: string;
+    search?: string;
+  }): { orders: Order[]; total: number } {
+    return OrderModel.getPaginated(options);
   }
 
   static resetExchange(): void {

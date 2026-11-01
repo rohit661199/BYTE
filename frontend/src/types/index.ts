@@ -45,15 +45,26 @@ export interface CreateOrderDTO {
   type?: OrderType;
   price: number;
   quantity: number;
+  symbol?: string;
+  userId?: string;
 }
 
 export interface ApiResponse<T> {
   success: boolean;
   message?: string;
   data: T;
+  total?: number;
+  limit?: number;
+  offset?: number;
   error?: {
     code: string;
     message: string;
     details?: Array<{ field: string; message: string }>;
   };
 }
+
+export interface PaginatedOrdersResult {
+  orders: Order[];
+  total: number;
+}
+

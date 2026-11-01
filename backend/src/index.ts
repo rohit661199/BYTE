@@ -14,6 +14,11 @@ import { WebSocketService } from './services/websocketService.js';
 const app = express();
 const server = http.createServer(app);
 
+// Safe BigInt JSON serialization guard across all API responses
+app.set('json replacer', (_key: string, value: any) =>
+  typeof value === 'bigint' ? value.toString() : value
+);
+
 // 1. Initialize Database Schema & Migrations
 initDatabase();
 

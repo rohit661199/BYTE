@@ -378,10 +378,81 @@ export class OrderModel {
   }
 
 
-  static getAll(): Order[] {
-    const stmt = db.prepare('SELECT * FROM orders ORDER BY created_at DESC');
-    const rows = stmt.all() as RawOrderRow[];
+  static getAll(limit?: number, offset?: number): Order[] {
+    let sql = 'SELECT * FROM orders ORDER BY created_at DESC';
+    const params: number[] = [];
+    if (limit != null && !isNaN(limit) && limit > 0) {
+      sql += ' LIMIT ?';
+      params.push(limit);
+      if (offset != null && !isNaN(offset) && offset > 0) {
+        sql += ' OFFSET ?';
+        params.push(offset);
+      }
+    }
+    const stmt = db.prepare(sql);
+    const rows = (params.length > 0 ? stmt.all(...params) : stmt.all()) as RawOrderRow[];
     return rows.map(mapRowToOrder);
+  }
+
+  static getPaginated(options: {
+    limit?: number;
+    offset?: number;
+    status?: string;
+    search?: string;
+  }): { orders: Order[]; total: number } {
+    const whereClauses: string[] = [];
+    const filterParams: any[] = [];
+
+    // 1. Status Filter
+    if (options.status && options.status.toUpperCase() !== 'ALL') {
+      const upperStatus = options.status.toUpperCase();
+      if (upperStatus === 'OPEN') {
+        whereClauses.push("status IN ('PENDING', 'PARTIALLY_FILLED')");
+      } else if (upperStatus === 'FILLED' || upperStatus === 'COMPLETED') {
+        whereClauses.push("status = 'FILLED'");
+      } else if (upperStatus === 'CANCELLED') {
+        whereClauses.push("status = 'CANCELLED'");
+      } else if (['PENDING', 'PARTIALLY_FILLED', 'QUEUED_AMO', 'REJECTED'].includes(upperStatus)) {
+        whereClauses.push("status = ?");
+        filterParams.push(upperStatus);
+      }
+    }
+
+    // 2. Search Filter (parameterized search on id and symbol)
+    if (options.search && options.search.trim()) {
+      const searchPattern = `%${options.search.trim()}%`;
+      whereClauses.push("(id LIKE ? OR symbol LIKE ? OR side LIKE ?)");
+      filterParams.push(searchPattern, searchPattern, searchPattern);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    // 3. Count Query using exact same filter criteria
+    const countSql = `SELECT COUNT(*) as count FROM orders ${whereSql}`;
+    const countStmt = db.prepare(countSql);
+    const countResult = (filterParams.length > 0 ? countStmt.get(...filterParams) : countStmt.get()) as { count: number };
+    const total = countResult ? countResult.count : 0;
+
+    // 4. Clamping and Pagination Query
+    let limit = 50;
+    if (typeof options.limit === 'number' && !isNaN(options.limit) && options.limit > 0) {
+      limit = Math.min(options.limit, 100);
+    }
+
+    let offset = 0;
+    if (typeof options.offset === 'number' && !isNaN(options.offset)) {
+      offset = Math.max(0, options.offset);
+    }
+
+    const dataSql = `SELECT * FROM orders ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+    const dataParams = [...filterParams, limit, offset];
+    const dataStmt = db.prepare(dataSql);
+    const rows = dataStmt.all(...dataParams) as RawOrderRow[];
+
+    return {
+      orders: rows.map(mapRowToOrder),
+      total,
+    };
   }
 
   static getCounts(): { totalBuy: number; totalSell: number } {
